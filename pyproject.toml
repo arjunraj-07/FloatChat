@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "floatchat"
+version = "0.1.0"
+description = "FloatChat - deterministic Argo profile explorer backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pandas",
+    "numpy",
+    "pyarrow",
+    "xarray",
+    "netCDF4",
+    "h5netcdf",
+    "gsw",
+    "requests",
+    "certifi",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[tool.setuptools]
+packages = ["floatchat_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Network-dependent tests are opt-in so the core suite runs fully offline.
+markers = ["network: test requires internet access (deselect with -m 'not network')"]
+addopts = "-m 'not network'"

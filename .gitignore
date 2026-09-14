@@ -1,0 +1,33 @@
+# Python virtual environment (kept on disk, never tracked)
+venv/
+.venv/
+env/
+
+# Python bytecode / build artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Environment files and credentials (never commit)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Node artefacts (the frontend repo has its own ignore rules too)
+node_modules/
+.next/
+
+# Locally derived reference caches. The cached WOA extracts under
+# data/reference/ are small and ARE tracked on purpose so that the offline
+# tests and the evidence panel are reproducible without network access.

@@ -1,0 +1,29 @@
+# FloatChat backend runtime + test dependencies.
+# Versions are the ones verified in the local venv (Python 3.11).
+# Install with:  venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# API
+fastapi==0.141.1
+uvicorn==0.52.4
+
+# Data handling
+pandas==2.3.3
+numpy==2.4.6
+pyarrow==25.0.1
+xarray==2025.9.0
+
+# NetCDF / OPeNDAP access (WOA23, ERDDAP subsets)
+netCDF4==1.7.4
+h5netcdf==1.8.1
+
+# Oceanographic conversions (pressure -> depth)
+gsw==3.6.23
+
+# Retrieval
+requests==2.34.2
+certifi==2026.7.22
+erddapy==2.2.4
+
+# Tests
+pytest==8.3.4
+httpx==0.28.1
