@@ -418,8 +418,15 @@ def test_profile_and_woa_endpoints_still_respond():
     assert client.get("/api/floats").status_code == 200
 
 
-def test_missing_reference_data_does_not_block_execution():
-    """WOA is uncached offline; profile exploration must still work."""
+def test_missing_reference_data_does_not_block_execution(monkeypatch):
+    """With no reference available, profile exploration must still work."""
+    # Hermetic: the local reference cache may hold real WOA columns written by a
+    # running backend, so "missing" is stubbed rather than assumed.
+    monkeypatch.setattr(api_main, "_cached_reference_column",
+                        lambda *a, **k: (None, "reference column is not cached and "
+                                                "remote retrieval is disabled"))
+    monkeypatch.setattr("floatchat_core.plan_validation.read_cached_column",
+                        lambda *a, **k: None)
     woa = strict_json(client.get(
         f"/api/woa_match/{str(PROF['profile_id'].iloc[0])}"))
     assert woa["status"] == "Comparison unavailable"

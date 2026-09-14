@@ -749,6 +749,9 @@ def test_validation_never_performs_a_reference_read(monkeypatch):
         raise AssertionError("validation attempted a remote reference read")
 
     monkeypatch.setattr("floatchat_core.woa.fetch_reference_column", explode)
+    # Hermetic: a real cached column must not hide the "uncached" warning.
+    monkeypatch.setattr("floatchat_core.plan_validation.read_cached_column",
+                        lambda *a, **k: None)
     body = strict_json(post(base_plan(
         analyses=["woa_climatology_comparison"], variables=["temp"])))
     assert body["outcome"] in ("valid", "valid_partial_coverage")

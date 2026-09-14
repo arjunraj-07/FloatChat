@@ -189,8 +189,13 @@ def shallowest_profile():
     return PROF.loc[PROF["depth_min"].idxmin(), "profile_id"]
 
 
-def test_comparison_is_unavailable_when_the_reference_cannot_be_retrieved():
+def test_comparison_is_unavailable_when_the_reference_cannot_be_retrieved(monkeypatch):
     """Offline and uncached: a reason, not a fabricated value."""
+    # Hermetic: the local reference cache may hold real WOA columns written by a
+    # running backend, so "missing" is stubbed rather than assumed.
+    monkeypatch.setattr(api_main, "_cached_reference_column",
+                        lambda *a, **k: (None, "reference column is not cached and "
+                                                "remote retrieval is disabled"))
     body = strict_json(client.get(f"/api/woa_match/{shallowest_profile()}"))
     assert body["status"] == "Comparison unavailable"
     assert "not cached" in body["reason"]

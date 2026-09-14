@@ -48,7 +48,8 @@ Leaflet map is an accepted interim component and must be preserved.**
 | Frontend draft state | TypeScript | `frontend/src/lib/draftPlan.ts`, `frontend/src/lib/querySession.ts` |
 | Backend tests | pytest | `tests/` |
 | Frontend tests | `node --test` (built in, no test framework added) | `frontend/tests/` |
-| NL question box | TypeScript/React | `frontend/src/components/QuestionBox.tsx` |
+| Explorer UI | TypeScript/React | `frontend/src/components/` (Explorer, AskBar, ProposalCard, QueryBuilder, PlanPreview, ProfilePanel, ProfileChart, CompareChart, Map, DetailsPanel, GettingStarted, CapabilityStatus, Term) |
+| Explorer presentation model | TypeScript | `frontend/src/lib/explorerModel.ts` |
 
 `floatchat_core/` holds every scientific decision. `api/main.py` selects rows
 and shapes responses; it contains no scientific logic. The ingestion script and
@@ -519,6 +520,64 @@ Fixes made while testing:
   removed, capped at 240 characters. A bare "HTTP 400" could not tell an
   invalid key from an unknown model.
 
+## 5d. Demonstration explorer (Verified)
+
+The frontend was reorganised for a basic demonstration. The draft, validation
+and execution session (`querySession.ts`), the planner, the validator and the
+execution endpoint are reused unchanged; no scientific calculation moved into
+the frontend.
+
+- **Header**: Ask in words with example chips. A chip only fills the question
+  box; it never calls the provider or runs anything. Student/Scientific toggle
+  and a "What works" list read from `/api/plan/capabilities`.
+- **Filter sidebar**, collapsible (a drawer on small screens). Only implemented
+  analyses and outputs are offered as controls; an unavailable one that arrives
+  in a draft is listed with a remove control instead of being hidden.
+- **Query bar**: validation badge, plain-language draft summary and **Run**,
+  always on screen; a stale-results notice appears when filters change after a
+  run, while the earlier results stay displayed and labelled by their own plan.
+- **Regional map** beside the **selected-profile panel**, with expandable
+  details below: the run and its coverage notes, evidence and provenance,
+  derived values, the difference from climatology, and (scientific view) the
+  raw response.
+- **Before any run**: a getting-started panel and **Use cached data**, which
+  fills the draft from `/api/coverage` (box rounded outward to 0.01 degrees,
+  first and last observation day, 0 m to the deepest level, temperature and
+  salinity) and lets validation run. Execution still needs Run. The map shows
+  every cached position in grey, labelled "Dataset overview ... not query
+  results".
+- **Float Detective**: float and profile selectors, Earlier/Later within the
+  float ordered by observation time, "Profile k of n from float X available in
+  this result", UTC date, position, observed depth range and per-variable
+  availability. Map clicks and the chart stay in sync.
+- **Profile chart**: temperature and salinity as two panels sharing one depth
+  axis rather than two x-scales on one plot. An empty panel states why it is
+  empty without borrowing the other panel's scale. Derived exact-depth values
+  are open diamonds.
+- **Compare**: two profiles from the executed result, one variable at a time,
+  on common axes with depth downward; A is solid blue with circles, B dashed
+  orange with squares (palette validated: CVD dE 24.7, normal-vision dE 33.6).
+  Missing-data notes are shown; nothing is smoothed or interpolated and no
+  profile is labelled unusual. Selections reset when a new result no longer
+  contains them.
+- **Student/Scientific**: identical data, policies and calculations.
+  Scientific adds units, TEMP/PSAL naming, QC and raw/adjusted fields,
+  provenance, validator codes and interpolation details. Explanations are a
+  static glossary; no model is called.
+- Backend timestamps are displayed as UTC (a naive timestamp means UTC). The
+  separate accept-proposal issue recorded in
+  `frontend/tests/dateNormalization.test.ts` is unchanged.
+
+Verification: `frontend/scripts/verify-ui.mjs` drives headless Chrome at
+1366x768 over the DevTools protocol against the running app. 26/26 checks
+passed with no page errors: dataset-overview labelling, Use cached data
+validating without running, Run showing the map and a chart together with Run
+still on screen, map-click selection, float navigation, a temperature-only
+profile with an undistorted temperature axis, scientific naming, two-profile
+comparison for both variables, and results kept (flagged stale) after a draft
+edit. The screenshots were inspected; they exposed an empty-panel axis bug and
+an unusable small-screen header, both fixed before the final run.
+
 ## 6. Known limitations
 
 - **WOA reference values are not currently available.** NCEI
@@ -555,12 +614,10 @@ Fixes made while testing:
   be drawn from them; a live evaluation would be a separate exercise.
 - Only an OpenAI-compatible adapter exists. Adding another vendor is a
   deliberate, reviewable change, not a configuration switch.
-- **Browser verification was not performed** — no browser automation was
-  available in this session. The interaction logic was verified instead by 35
-  `node --test` unit tests over the real reducer and converter, plus an
-  end-to-end script driving the real `validatePlan`/`executePlan` clients
-  against a live uvicorn server. Visual rendering has not been confirmed by a
-  human or a headless browser.
+- **Browser verification is automated, not a usability study.** Headless
+  Chrome checks and inspected screenshots cover the demonstration flows
+  (§5d); no user testing has been done. Real browsers other than Chrome
+  were not tried.
 - `outside_configured_search_region` fires whenever the requested box reaches
   beyond 60–65 °E / 15–20 °N. Most realistic region requests are therefore
   reported as partial coverage. This is accurate, not a defect; `valid` is
@@ -579,9 +636,16 @@ Fixes made while testing:
 - `frontend/tsconfig.json` gained `allowImportingTsExtensions: true` so the
   same `.ts` imports resolve under both Turbopack and Node's test runner. Both
   `npm run build` and `npx tsc --noEmit` were re-verified after the change.
-- Lint debt is now **6** pre-existing `@typescript-eslint/no-explicit-any`
-  errors in `Map.tsx` (4, untouched) and `ProfileChart.tsx` (2, Plotly casts),
-  down from 15. No new lint errors were introduced.
+- Frontend lint is clean. The six remaining `no-explicit-any` errors were in
+  `Map.tsx` and `ProfileChart.tsx`, both rewritten in §5d; Plotly trace and
+  layout objects keep a documented, line-scoped `any` because react-plotly.js
+  is untyped.
+- Compare works only within one executed result. Comparing periods, regions or
+  depths across queries (`comparison_view`) is still not implemented.
+- The running backend (network reads enabled by the launcher) has cached one
+  real WOA23 column under the untracked `data/reference/woa23/`, so the
+  climatology difference now succeeds for profiles in that grid cell. Three
+  backend tests that had assumed an empty cache were made hermetic.
 
 ---
 
@@ -597,7 +661,7 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 370 -> 374 + 1 xfail date-normalization cases; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 57 passed + 1 todo (known issue). Uses Node's built-in runner and
+# Frontend interaction tests — 82 passed + 1 todo (known issue). Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -622,7 +686,10 @@ venv/Scripts/python.exe scripts/data_feasibility/build_woa_cache.py --variables 
 cd frontend && npx tsc --noEmit
 cd frontend && npm run build
 
-# Frontend lint — exit 1, 6 pre-existing `any` errors (was 15); none new
+# Frontend lint — exit 0
+
+# Headless-Chrome UI checks against the running app (26/26):
+#   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 cd frontend && npm run lint
 
 # Live server check (offline mode) — all endpoints correct, no NaN tokens.
