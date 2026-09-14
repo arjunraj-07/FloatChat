@@ -8,6 +8,20 @@ This package is imported by both the ingestion script
 (api/main.py) so that the behaviour under test is the behaviour in production.
 """
 
+from .plan import (
+    PLAN_SCHEMA_VERSION,
+    Analysis,
+    DataMode,
+    DepthMode,
+    NamedRegion,
+    Outcome,
+    Output,
+    QueryPlanRequest,
+    Variable,
+    capability_report,
+    normalize_plan,
+)
+from .plan_validation import DatasetIndex, status_for_outcome, validate_plan
 from .qc import (
     ARGO_VARIABLE_DEFINITIONS,
     SUPPORTED_DATA_MODES,
@@ -27,6 +41,20 @@ from .woa import (
 )
 
 __all__ = [
+    "PLAN_SCHEMA_VERSION",
+    "Analysis",
+    "DataMode",
+    "DatasetIndex",
+    "DepthMode",
+    "NamedRegion",
+    "Outcome",
+    "Output",
+    "QueryPlanRequest",
+    "Variable",
+    "capability_report",
+    "normalize_plan",
+    "status_for_outcome",
+    "validate_plan",
     "ARGO_VARIABLE_DEFINITIONS",
     "SUPPORTED_DATA_MODES",
     "FieldSelection",

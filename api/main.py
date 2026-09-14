@@ -15,10 +15,17 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
+API_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(API_DIR)
+# Both roots are registered so the app imports identically whether it is run as
+# `uvicorn main:app` from api/ or imported from the repository root.
+for _path in (BASE_DIR, API_DIR):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
+from plan_routes import build_plan_router  # noqa: E402
+
+from floatchat_core.plan_validation import DatasetIndex  # noqa: E402
 from floatchat_core.qc import ARGO_VARIABLE_DEFINITIONS  # noqa: E402
 from floatchat_core.woa import (  # noqa: E402
     DEFAULT_FETCH_TIMEOUT_S,
@@ -63,6 +70,26 @@ WOA_TIMEOUT_S = float(
     os.environ.get("FLOATCHAT_WOA_TIMEOUT_S", DEFAULT_FETCH_TIMEOUT_S)
 )
 MAX_GAP_M = float(os.environ.get("FLOATCHAT_MAX_GAP_M", DEFAULT_MAX_GAP_M))
+
+def dataset_index() -> DatasetIndex:
+    """The loaded tables plus the identity of the processing run behind them.
+
+    Plan validation resolves availability through this, so it reflects the data
+    actually in memory rather than any documentation.
+    """
+    provenance = (PROCESSING_REPORT or {}).get("provenance", {})
+    return DatasetIndex(
+        observations=df_obs,
+        profiles=df_prof,
+        identity={
+            "dataset_id": provenance.get("dataset_id"),
+            "source_url": provenance.get("source_url"),
+            "raw_file_checksum": provenance.get("raw_file_checksum"),
+            "processed_at": provenance.get("processed_at"),
+            "processing_script": provenance.get("processing_script"),
+        },
+    )
+
 
 COMPARISON_LIMITATIONS = [
     "The reference climatology is a monthly mean on a "
@@ -369,6 +396,9 @@ def woa_match(profile_id: str, variable: str = "temp"):
         },
         "limitations": COMPARISON_LIMITATIONS,
     })
+
+
+app.include_router(build_plan_router(dataset_index))
 
 
 if __name__ == "__main__":

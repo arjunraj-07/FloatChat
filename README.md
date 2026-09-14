@@ -38,8 +38,26 @@ cd api
 ..\venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
 
-Endpoints: `/api/health`, `/api/coverage`, `/api/floats`,
+Explorer endpoints: `/api/health`, `/api/coverage`, `/api/floats`,
 `/api/profiles/{profile_id}`, `/api/woa_match/{profile_id}`.
+
+Query-plan endpoints: `GET /api/plan/capabilities` and
+`POST /api/plan/validate`. The validator checks a structured exploration
+request against the loaded data; it does not execute it, fetch anything or
+call a model. Outcomes are `valid`, `valid_partial_coverage`, `valid_no_data`,
+`unsupported` (200) and `invalid` (422); a non-JSON body is 400. See
+[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) §5a for the full contract and
+`frontend/src/lib/planContract.ts` for the TypeScript types.
+
+```bash
+curl -X POST http://localhost:8000/api/plan/validate \
+  -H 'Content-Type: application/json' \
+  -d '{"schema_version":"1.0",
+       "time":{"start":"2024-01-01T00:00:00Z","end":"2024-01-10T00:00:00Z"},
+       "region":{"kind":"named","name":"argo_cached_subset"},
+       "depth":{"mode":"range","min_m":0,"max_m":200},
+       "variables":["temp","psal"]}'
+```
 
 ### Optional environment variables
 
