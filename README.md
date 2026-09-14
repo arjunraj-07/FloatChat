@@ -41,8 +41,8 @@ cd api
 Explorer endpoints: `/api/health`, `/api/coverage`, `/api/floats`,
 `/api/profiles/{profile_id}`, `/api/woa_match/{profile_id}`.
 
-Query-plan endpoints: `GET /api/plan/capabilities`, `POST /api/plan/validate`
-and `POST /api/plan/execute`. The validator checks a structured exploration
+Query-plan endpoints: `GET /api/plan/capabilities`, `POST /api/plan/validate`,
+`POST /api/plan/execute`, `POST /api/plan/draft` and `GET /api/plan/nl_status`. The validator checks a structured exploration
 request against the loaded data; it does not execute it, fetch anything or
 call a model. Outcomes are `valid`, `valid_partial_coverage`, `valid_no_data`,
 `unsupported` (200) and `invalid` (422); a non-JSON body is 400.
@@ -64,6 +64,41 @@ curl -X POST http://localhost:8000/api/plan/validate \
        "depth":{"mode":"range","min_m":0,"max_m":200},
        "variables":["temp","psal"]}'
 ```
+
+### Natural-language drafting (optional, off by default)
+
+Asking a question **proposes** an editable draft; it never runs a query and
+never produces a number. FloatChat ships no bundled model vendor — it talks to
+any service exposing the OpenAI-compatible `POST {base}/chat/completions` shape,
+including self-hosted runtimes such as Ollama, vLLM, llama.cpp and LM Studio.
+
+With nothing configured the feature is simply off: the question box explains
+that it is not configured and **manual query building is unaffected**.
+
+| Variable | Meaning |
+|---|---|
+| `FLOATCHAT_NL_PROVIDER` | `openai_compatible`. Unset disables the feature. |
+| `FLOATCHAT_NL_BASE_URL` | Base URL exposing `POST {base}/chat/completions`. |
+| `FLOATCHAT_NL_MODEL` | Model name passed through to that service. |
+| `FLOATCHAT_NL_API_KEY` | Optional bearer token. **Server-side only.** |
+| `FLOATCHAT_NL_TIMEOUT_S` | Request timeout, default `20`. |
+| `FLOATCHAT_NL_MAX_OUTPUT_TOKENS` | Output cap, default `1200`. |
+| `FLOATCHAT_NL_MAX_QUESTION_CHARS` | Question length cap, default `600`. |
+| `FLOATCHAT_NL_RESPONSE_FORMAT` | `json_object` (default), `json_schema`, `none`. |
+
+Example, pointing at a local Ollama server:
+
+```bash
+export FLOATCHAT_NL_PROVIDER=openai_compatible
+export FLOATCHAT_NL_BASE_URL=http://localhost:11434/v1
+export FLOATCHAT_NL_MODEL=llama3.1
+```
+
+Credentials are read from the server environment, sent only to the configured
+service, and never returned to the browser. The model receives the query schema
+and a coverage summary — never observations, files or secrets — and returns a
+JSON patch that the backend validates. No model-generated code, SQL or URL is
+ever executed.
 
 ### Optional environment variables
 

@@ -41,12 +41,14 @@ Leaflet map is an accepted interim component and must be preserved.**
 | Scientific core | Pure Python + numpy | `floatchat_core/` |
 | Plan contract | Pydantic 2 | `floatchat_core/plan.py`, `floatchat_core/plan_validation.py` |
 | Plan execution | Python | `floatchat_core/plan_execution.py` |
+| NL planner | Python (provider-neutral) | `floatchat_core/nl_planner.py`, `floatchat_core/nl_provider.py` |
 | API | FastAPI + uvicorn | `api/main.py`, `api/plan_routes.py` |
 | Frontend | Next.js 16.3.5, React 19, TypeScript, React-Leaflet, Plotly | `frontend/src/components/Explorer.tsx` |
 | Frontend contract | TypeScript types | `frontend/src/lib/planContract.ts` |
 | Frontend draft state | TypeScript | `frontend/src/lib/draftPlan.ts`, `frontend/src/lib/querySession.ts` |
 | Backend tests | pytest | `tests/` |
 | Frontend tests | `node --test` (built in, no test framework added) | `frontend/tests/` |
+| NL question box | TypeScript/React | `frontend/src/components/QuestionBox.tsx` |
 
 `floatchat_core/` holds every scientific decision. `api/main.py` selects rows
 and shapes responses; it contains no scientific logic. The ingestion script and
@@ -103,7 +105,8 @@ column bit-identically; only additive columns were introduced.
 ## 4. Scientific policies (implemented and tested)
 
 1. **Deterministic numbers.** All values come from `floatchat_core`. No LLM
-   produces a number. (No LLM integration exists yet.)
+   produces a number. The natural-language planner proposes *query plans*
+   only; it never computes, narrates or estimates a result (§5c).
 2. **Mode-consistent selection.** `R` → raw value with *raw* QC. `A`/`D` →
    adjusted value with *adjusted* QC. Any other mode raises
    `UnsupportedDataModeError`; it is never coerced to raw. A missing adjusted
@@ -351,6 +354,94 @@ TypeScript and is checked against the Python enums by
 `tests/test_plan_contract_alignment.py`, which fails on drift and skips if the
 submodule is not checked out.
 
+## 5c. Natural-language drafting (Verified)
+
+A question **proposes an editable draft**. It never runs a query and never
+produces a number. The flow is:
+
+> question + explicitly supplied manual context → proposed draft → existing
+> validation → editable preview → user presses Run → existing execution
+
+### Provider boundary
+
+FloatChat ships **no bundled model vendor**. `floatchat_core/nl_provider.py`
+defines a narrow `complete_json` protocol and one vendor-neutral adapter
+speaking the widely implemented OpenAI-compatible `POST {base}/chat/completions`
+shape, which self-hosted runtimes (Ollama, vLLM, llama.cpp, LM Studio) and
+several hosted services accept. It uses `requests`, already a dependency, so
+**no vendor SDK entered the repository**.
+
+| Environment variable | Meaning |
+|---|---|
+| `FLOATCHAT_NL_PROVIDER` | `openai_compatible`. **Unset disables the feature.** |
+| `FLOATCHAT_NL_BASE_URL` | Base URL exposing `POST {base}/chat/completions`. |
+| `FLOATCHAT_NL_MODEL` | Model name passed through to that service. |
+| `FLOATCHAT_NL_API_KEY` | Optional bearer token. Server-side only. |
+| `FLOATCHAT_NL_TIMEOUT_S` | Request timeout, default 20. |
+| `FLOATCHAT_NL_MAX_OUTPUT_TOKENS` | Output cap, default 1200. |
+| `FLOATCHAT_NL_MAX_QUESTION_CHARS` | Question length cap, default 600. |
+| `FLOATCHAT_NL_RESPONSE_FORMAT` | `json_object` (default), `json_schema`, or `none`. |
+
+With nothing configured — the current state — `GET /api/plan/nl_status` reports
+`configured: false`, `POST /api/plan/draft` returns **503** with
+`provider_not_configured`, the question box renders a "Natural-language service
+not configured" notice, and **manual exploration is entirely unaffected**. A
+*half*-configured deployment fails loudly rather than pretending to be off.
+
+Credentials never reach browser code: the key is read from the server
+environment, sent only as an `Authorization` header to the configured service,
+and excluded from every response (`credential_configured` is a boolean).
+
+### What the model is given, and what it may return
+
+It receives the schema, vocabulary, capability registry and a **coverage
+summary** — extents and counts only. No observation arrays, no NetCDF bytes, no
+secrets. The measured prompt is ~5.7 KB.
+
+It returns a small JSON **patch**, never a finished plan, and never executable
+content. No model-produced Python, SQL, URL or tool call is ever executed.
+Everything that matters is then decided in deterministic code:
+
+- **Omitted fields are retained** from the caller's draft, so a question about
+  depth cannot quietly reset the region.
+- **`qc_policy` is not patchable**, so QC can never be relaxed by a model.
+- **Capability truth comes from the registry**, not the model's opinion — in
+  either direction.
+- **The change list is computed by `diff_plans`**, so a model that misdescribes
+  its own edits does not affect what the user is shown.
+- **The proposal is validated by the ordinary validator**, so availability is
+  reported honestly.
+
+### Four distinct outcomes
+
+| Outcome | HTTP | Meaning |
+|---|---|---|
+| `proposed_draft` | 200 | A schema-valid plan to edit and run. |
+| `clarification_needed` | 200 | Under-specified; a question is returned, the draft untouched. |
+| `unsupported_request` | 200 | Names an unimplemented capability; nothing is substituted. |
+| `provider_unavailable` | 503 | Not configured, timed out, or an unusable reply. |
+
+Verified over real HTTP against a loopback provider:
+"show temperature at 100 m" → `proposed_draft` changing **only** `depth`, with
+region/time/variables listed as retained; "compare it with last summer" →
+`clarification_needed` and no plan; "detect a marine heatwave" →
+`unsupported_request` naming the missing daily SST series and 90th-percentile
+baseline; "temperature in summer 2019" → dates preserved as **2019-06-01 to
+2019-08-31** and validating to `valid_no_data` with no errors.
+
+**A requested date or region is never rewritten to where cached data happens to
+exist.** Relative dates resolve against an explicit `reference_date` (UTC),
+which is echoed back in the response and shown in the UI.
+
+### Integration with the revision model
+
+Asking is tagged with the draft revision it described. A reply is **never
+applied automatically**: it is stored and offered, and if the user edited
+controls while it was in flight it is labelled "made for an earlier version of
+the query" rather than overwriting that newer work. Accepting is an ordinary
+`edit`, so the revision advances and the proposal flows through the same
+validation as any manual change. Generating a draft does not run it.
+
 ## 6. Known limitations
 
 - **WOA reference values are not currently available.** NCEI
@@ -374,8 +465,17 @@ submodule is not checked out.
   milestone; typed API response models are deferred to the next one.
 - Only the shallowest matchable reference depth populates the legacy scalar
   response fields; the full set is in `matches[]`.
-- No natural-language layer and no LLM provider integration. Plans are produced
-  only by the manual query controls.
+- **No provider is configured**, so natural-language drafting is present but
+  inert in this deployment. The adapter, endpoint, UI and mocked tests are
+  complete; supplying `FLOATCHAT_NL_PROVIDER`/`_BASE_URL`/`_MODEL` is the
+  remaining dependency. The live smoke test used a **loopback fake** serving
+  canned replies — it proves the wire, the env contract and secret containment,
+  **not** that any model answers these questions well.
+- **No model evaluation has been performed.** Every natural-language test uses
+  a fixture reply, including `tests/test_nl_examples.py`. No accuracy claim can
+  be drawn from them; a live evaluation would be a separate exercise.
+- Only an OpenAI-compatible adapter exists. Adding another vendor is a
+  deliberate, reviewable change, not a configuration switch.
 - **Browser verification was not performed** — no browser automation was
   available in this session. The interaction logic was verified instead by 35
   `node --test` unit tests over the real reducer and converter, plus an
@@ -386,9 +486,15 @@ submodule is not checked out.
   beyond 60–65 °E / 15–20 °N. Most realistic region requests are therefore
   reported as partial coverage. This is accurate, not a defect; `valid` is
   reached by requests inside the dataset's own extent.
-- Execution returns at most 20,000 levels and reports `result_truncated` beyond
-  that. The cached subset (3,382) is far below the cap, so truncation has not
-  been exercised against real data.
+- Execution returns at most 20,000 levels and reports `result_truncated`
+  beyond that. The cached subset (3,382) is far below the cap, so the default
+  limit is now exercised by a **synthetic 21,000-level dataset** in
+  `tests/test_execution_limits.py` rather than by real data. Counts distinguish
+  total matches (`observation_count`) from records returned
+  (`returned_observation_count`); they differ only when `truncated` is true.
+- Derived results are counted **one row per (profile_id, variable) at one
+  target depth**, with `method` either `exact` or `linear_interpolation`. The
+  response documents this in `results.derived_identity`.
 - The `requested` echo is JSON-safe, so a NaN submitted in the body is echoed
   back as `null` rather than byte-identically.
 - `frontend/tsconfig.json` gained `allowImportingTsExtensions: true` so the
@@ -406,14 +512,20 @@ submodule is not checked out.
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline backend suite — 265 passed (127 -> 227 with the validator,
-# 227 -> 265 with execution and the revised semantics; no existing test
-# changed or regressed at any step)
+# Full offline backend suite — 360 passed (127 -> 227 validator,
+# 227 -> 265 execution, 265 -> 360 natural-language drafting plus the
+# truncation and derived-identity tests; nothing regressed at any step)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 35 passed. Uses Node's built-in runner and
+# Frontend interaction tests — 55 passed. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
+
+# Natural-language drafting against a loopback fake provider (not a model):
+#   FLOATCHAT_NL_PROVIDER=openai_compatible
+#   FLOATCHAT_NL_BASE_URL=http://127.0.0.1:8799/v1
+#   FLOATCHAT_NL_MODEL=<name>  [FLOATCHAT_NL_API_KEY=<token>]
+# Verified all four outcomes, date preservation and secret containment.
 
 # Bounded WOA cache build — 6 cells attempted, 6 failed (NCEI 503 outage)
 venv/Scripts/python.exe scripts/data_feasibility/build_woa_cache.py --variables temp
@@ -438,29 +550,18 @@ reference reads), `FLOATCHAT_WOA_TIMEOUT_S`, `FLOATCHAT_MAX_GAP_M`.
 
 ## 8. Next milestone
 
-The typed plan schema and `POST /api/plan/validate` are **done** (§5a). The
-target flow remains:
+Natural-language drafting is **done** (§5c) but inert until a provider is
+configured. Sensible next steps, in order:
 
-> question + manual context → **typed plan** → backend validation → existing
-> deterministic operations → structured results
+1. **Configure a provider and evaluate it.** Point `FLOATCHAT_NL_*` at a real
+   service and build a genuine evaluation — real calls, human labels — against
+   the labelled examples in `tests/test_nl_examples.py`. Today those are
+   contract fixtures and say nothing about model quality.
+2. **Explain returned results**, once §5c is trusted. The model may describe
+   numbers `floatchat_core` computed; it must still never produce one.
+3. **Populate the WOA cache** when NCEI recovers, enabling the climatology
+   comparison end to end.
 
-The manual query controls, editable preview and Run are **done** (§5b).
-
-**Next step: natural-language input producing the same draft plan, through a
-configurable backend provider.** Concretely:
-
-1. Add a backend endpoint that turns a question plus the current manual context
-   into a `QueryPlanRequest` — the *same* type the controls already produce.
-2. Feed that plan into the existing draft as an ordinary edit, so it bumps the
-   revision and flows through `validatePlan` like any manual change. The model
-   proposes a draft; it never bypasses validation and never executes anything.
-3. Show the proposed plan in the existing preview so the user can edit it
-   before running. Editing it must behave exactly as editing a manual field.
-4. Keep the provider behind backend configuration (env-driven, swappable). The
-   model interprets the question and explains returned results; it never
-   computes a number.
-
-- **The LLM provider is configurable and is not being changed.** All provider
-  calls go through the backend; API keys must never appear in frontend code.
-  `tests/test_plan_contract_alignment.py` asserts no credential-like token
-  appears in the frontend contract.
+Standing constraints: the provider stays configurable and backend-only, API
+keys never appear in frontend code, and the model never computes, narrates or
+estimates a scientific value.

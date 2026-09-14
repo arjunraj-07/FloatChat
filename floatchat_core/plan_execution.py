@@ -224,14 +224,30 @@ def execute_plan(plan: QueryPlanRequest, index: DatasetIndex,
             ),
         })
 
+    derived = _derived_rows(plan, matched, max_gap_m)
     envelope["executed"] = True
     envelope["executed_at"] = datetime.now(timezone.utc).isoformat()
     envelope["results"] = {
         "profiles": _profile_rows(plan, matched, index),
         "observations": observations,
+        # `observation_count` is how many levels matched the plan;
+        # `returned_observation_count` is how many are in this response. They
+        # differ only when `truncated` is true.
         "observation_count": int(len(matched)),
         "returned_observation_count": len(observations),
-        "derived": _derived_rows(plan, matched, max_gap_m),
+        "derived": derived,
+        "derived_count": len(derived),
+        "derived_identity": {
+            "unit": "one row per (profile_id, variable) at one target depth",
+            "key_fields": ["profile_id", "variable", "target_depth_m"],
+            "method_field": "method",
+            "methods": ["exact", "linear_interpolation"],
+            "note": (
+                "A derived row is a computed value, not an observation. Rows "
+                "are counted per profile per variable; `available` false means "
+                "no value could be justified and `value` is null."
+            ),
+        },
         "truncated": truncated,
         "variables": [v.value for v in dict.fromkeys(plan.variables)],
         "limitations": limitations,

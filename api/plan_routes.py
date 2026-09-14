@@ -20,6 +20,8 @@ Every response carries ``schema_version``, ``outcome``, ``requested`` and
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from typing import Callable
 
 from fastapi import APIRouter, Request
@@ -32,6 +34,13 @@ from floatchat_core.plan import (
     QueryPlanRequest,
     capability_report,
     pydantic_errors_to_issues,
+)
+from floatchat_core.nl_planner import DraftOutcome, draft_plan
+from floatchat_core.nl_provider import (
+    ProviderError,
+    ProviderNotConfigured,
+    build_provider,
+    provider_status,
 )
 from floatchat_core.plan_execution import execute_plan
 from floatchat_core.plan_validation import (
@@ -58,7 +67,15 @@ def _envelope(outcome: str, requested, errors=None, **extra) -> dict:
     return json_safe(payload)
 
 
-def build_plan_router(index_provider: Callable[[], DatasetIndex]) -> APIRouter:
+#: Bounds on the drafting request body itself, independent of the provider.
+MAX_DRAFT_BODY_BYTES = 32 * 1024
+
+
+def build_plan_router(
+    index_provider: Callable[[], DatasetIndex],
+    nl_provider_factory: Callable[[], object] | None = None,
+    nl_status: Callable[[], dict] | None = None,
+) -> APIRouter:
     """Router exposing plan validation over ``index_provider()``.
 
     The provider is called per request so validation always reflects the
@@ -124,6 +141,88 @@ def build_plan_router(index_provider: Callable[[], DatasetIndex]) -> APIRouter:
         result["requested"] = json_safe(body)
         return JSONResponse(status_code=status_for_outcome(result["outcome"]),
                             content=result)
+
+    @router.get("/api/plan/nl_status")
+    def nl_configuration_status():
+        """Whether natural-language drafting is available. Never returns a key."""
+        status = (nl_status or provider_status)()
+        return JSONResponse(status_code=200, content=json_safe(status))
+
+    @router.post("/api/plan/draft")
+    async def plan_draft(request: Request):
+        """Propose an editable draft from a question. Never executes anything.
+
+        The proposal is returned for the user to inspect and edit; running it
+        is a separate, explicit action against /api/plan/execute.
+        """
+        body = await request.body()
+        if len(body) > MAX_DRAFT_BODY_BYTES:
+            return JSONResponse(status_code=413, content=json_safe({
+                "schema_version": PLAN_SCHEMA_VERSION,
+                "outcome": DraftOutcome.PROVIDER_UNAVAILABLE.value,
+                "errors": [{"code": "request_too_large", "field": None,
+                            "message": f"The request body exceeds "
+                                       f"{MAX_DRAFT_BODY_BYTES} bytes."}],
+                "provider_message": "Request too large.",
+            }))
+
+        try:
+            payload = json.loads(body) if body else None
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            return JSONResponse(status_code=400, content=json_safe({
+                "schema_version": PLAN_SCHEMA_VERSION,
+                "outcome": DraftOutcome.PROVIDER_UNAVAILABLE.value,
+                "errors": [{"code": "malformed_json", "field": None,
+                            "message": "The request body must be a JSON object."}],
+                "provider_message": "Malformed request body.",
+            }))
+
+        question = payload.get("question")
+        if not isinstance(question, str) or not question.strip():
+            return JSONResponse(status_code=400, content=json_safe({
+                "schema_version": PLAN_SCHEMA_VERSION,
+                "outcome": DraftOutcome.PROVIDER_UNAVAILABLE.value,
+                "errors": [{"code": "missing_question", "field": "question",
+                            "message": "A non-empty question is required."}],
+                "provider_message": "No question supplied.",
+            }))
+
+        reference_date = None
+        raw_reference = payload.get("reference_date")
+        if isinstance(raw_reference, str) and raw_reference.strip():
+            try:
+                reference_date = datetime.fromisoformat(
+                    raw_reference.replace("Z", "+00:00"))
+            except ValueError:
+                return JSONResponse(status_code=400, content=json_safe({
+                    "schema_version": PLAN_SCHEMA_VERSION,
+                    "outcome": DraftOutcome.PROVIDER_UNAVAILABLE.value,
+                    "errors": [{"code": "invalid_reference_date",
+                                "field": "reference_date",
+                                "message": "reference_date must be ISO-8601."}],
+                    "provider_message": "Invalid reference date.",
+                }))
+
+        try:
+            provider = (nl_provider_factory or build_provider)()
+        except (ProviderNotConfigured, ProviderError):
+            provider = None
+
+        context = payload.get("context")
+        revision = payload.get("revision")
+        result = draft_plan(
+            question=question.strip(),
+            context=context if isinstance(context, dict) else None,
+            index=index_provider(),
+            provider=provider,
+            reference_date=reference_date,
+            revision=revision if isinstance(revision, int) else None,
+        )
+        status = (503 if result["outcome"] ==
+                  DraftOutcome.PROVIDER_UNAVAILABLE.value else 200)
+        return JSONResponse(status_code=status, content=result)
 
     @router.post("/api/plan/execute")
     async def plan_execute(request: Request):
