@@ -459,13 +459,24 @@ environment. The key is never written to a file.
   JavaScript), and the OpenAI SDKs send those as `{"type": "json_schema"}`.
   Those examples do not show the `{"type": "json_object"}` form this adapter
   sends by default, so compatibility with our actual request is **unverified**.
-- **Live result: authentication rejected.** Five `/api/plan/draft` requests
-  (no retries) all returned HTTP 400 in 0.13-0.56 s. One read-only
-  `GET /models` call returned HTTP 400 `INVALID_ARGUMENT` "Invalid Auth key.",
-  so the rejection happens before any model or parameter is considered. The
-  stored key is present with no whitespace or quote characters, but it does not
-  match the standard Google API-key format. **No model reply has been observed**;
-  no conclusion about model behaviour, accuracy or `json_object` support follows.
+- **First credential: rejected.** Five `/api/plan/draft` requests (no
+  retries) all returned HTTP 400 in 0.13-0.56 s. A read-only compatibility
+  `GET /v1beta/openai/models` returned HTTP 400 `INVALID_ARGUMENT` "Invalid
+  Auth key.", and a native `GET /v1beta/models` with `x-goog-api-key` returned
+  HTTP 401 `UNAUTHENTICATED`. An earlier version of this note inferred from the
+  key's format that it was probably incomplete. **That inference was
+  unfounded:** Google issues both standard and authorization keys, so format is
+  not a validity test. The cause (credential validity, restrictions or project
+  access) was never determined.
+- **Replacement credential: authentication verified.** A new Google AI Studio
+  key was saved on 2026-09-14. Its User-scope and process values are present
+  and identical. A native `GET /v1beta/models` (`x-goog-api-key`) returned
+  HTTP 200 listing 56 models, including `models/gemini-3.1-flash-lite`. The
+  OpenAI-compatible `GET /v1beta/openai/models` (Bearer) returned HTTP 200 and
+  also lists it. **Only authentication and model listing are verified.** No
+  generation request has been sent with this key, so model behaviour, accuracy
+  and `json_object` structured output remain unverified. The five smoke tests
+  are still pending.
 
 Fixes made while testing:
 
@@ -505,9 +516,10 @@ Fixes made while testing:
   milestone; typed API response models are deferred to the next one.
 - Only the shallowest matchable reference depth populates the legacy scalar
   response fields; the full set is in `matches[]`.
-- **Gemini is configured but its key is rejected.** Google answers every
-  request with HTTP 400 `INVALID_ARGUMENT` "Invalid Auth key." (§5c). No live
-  model reply has been observed, so model behaviour and `json_object`
+- **Gemini authentication is verified; generation is not.** With the
+  replacement key, both the native and the OpenAI-compatible model listings
+  return HTTP 200 and include `gemini-3.1-flash-lite` (§5c). No generation
+  request has been sent with it, so model behaviour and `json_object`
   compatibility are both unverified. The earlier loopback-fake test proves the
   wire, the env contract and secret containment, **not** model quality.
 - **No model evaluation has been performed.** Every natural-language test uses
@@ -569,8 +581,10 @@ cd frontend && npm test
 
 # Backend with the Gemini settings applied (key inherited, never stored):
 powershell -ExecutionPolicy Bypass -File scripts\run_api.ps1
-# Live Gemini smoke, 2026-09-14: 5 requests, all HTTP 400; GET /models ->
-# INVALID_ARGUMENT "Invalid Auth key." No model reply observed.
+# Live Gemini, 2026-09-14. First credential: 5 draft requests HTTP 400;
+# compat GET /models 400 "Invalid Auth key."; native GET /v1beta/models 401.
+# Replacement credential: native and compat model listings both HTTP 200,
+# gemini-3.1-flash-lite listed. No generation request sent yet.
 
 # Bounded WOA cache build — 6 cells attempted, 6 failed (NCEI 503 outage)
 venv/Scripts/python.exe scripts/data_feasibility/build_woa_cache.py --variables temp
