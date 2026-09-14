@@ -418,7 +418,7 @@ Everything that matters is then decided in deterministic code:
 |---|---|---|
 | `proposed_draft` | 200 | A schema-valid plan to edit and run. |
 | `clarification_needed` | 200 | Under-specified; a question is returned, the draft untouched. |
-| `unsupported_request` | 200 | Names an unimplemented capability; nothing is substituted. |
+| `unsupported_request` | 200 | Names an unimplemented capability, or a policy change a question may not make; nothing is substituted. |
 | `provider_unavailable` | 503 | Not configured, timed out, or an unusable reply. |
 
 Verified over real HTTP against a loopback provider:
@@ -441,6 +441,46 @@ controls while it was in flight it is labelled "made for an earlier version of
 the query" rather than overwriting that newer work. Accepting is an ordinary
 `edit`, so the revision advances and the proposal flows through the same
 validation as any manual change. Generating a draft does not run it.
+
+### Gemini configuration and live smoke test (2026-09-14)
+
+`scripts/run_api.ps1` persists only non-secret settings - provider
+`openai_compatible`, base URL
+`https://generativelanguage.googleapis.com/v1beta/openai/`, model
+`gemini-3.1-flash-lite` - and inherits `FLOATCHAT_NL_API_KEY` from the
+environment. The key is never written to a file.
+
+- **URL join verified.** The trailing slash is stripped before
+  `/chat/completions` is appended, giving
+  `.../v1beta/openai/chat/completions` with no duplicated path.
+- **`response_format`, corrected.** An earlier note here said Google does not
+  document `response_format`. That was wrong: Google's structured-output
+  examples pass it (`response_format=Model` in Python, `zodResponseFormat` in
+  JavaScript), and the OpenAI SDKs send those as `{"type": "json_schema"}`.
+  Those examples do not show the `{"type": "json_object"}` form this adapter
+  sends by default, so compatibility with our actual request is **unverified**.
+- **Live result: authentication rejected.** Five `/api/plan/draft` requests
+  (no retries) all returned HTTP 400 in 0.13-0.56 s. One read-only
+  `GET /models` call returned HTTP 400 `INVALID_ARGUMENT` "Invalid Auth key.",
+  so the rejection happens before any model or parameter is considered. The
+  stored key is present with no whitespace or quote characters, but it does not
+  match the standard Google API-key format. **No model reply has been observed**;
+  no conclusion about model behaviour, accuracy or `json_object` support follows.
+
+Fixes made while testing:
+
+- A question asking to change the QC policy (e.g. "include QC=4 observations")
+  now yields `unsupported_request` with a reason derived from the stored QC
+  flags, instead of a no-op `proposed_draft`. When the reply's only content is
+  unsupported, no plan is offered.
+- Unsupported requests the model declares are surfaced unless they name an
+  implemented analysis or output; the registry still overrules the model there.
+- The prompt now says to set every field the question names ("temperature at
+  100 m" sets both `variables` and `depth`).
+- Provider error bodies are surfaced with credentials scrubbed: status and
+  message only, with the configured key, bearer tokens and Google key shapes
+  removed, capped at 240 characters. A bare "HTTP 400" could not tell an
+  invalid key from an unknown model.
 
 ## 6. Known limitations
 
@@ -465,12 +505,11 @@ validation as any manual change. Generating a draft does not run it.
   milestone; typed API response models are deferred to the next one.
 - Only the shallowest matchable reference depth populates the legacy scalar
   response fields; the full set is in `matches[]`.
-- **No provider is configured**, so natural-language drafting is present but
-  inert in this deployment. The adapter, endpoint, UI and mocked tests are
-  complete; supplying `FLOATCHAT_NL_PROVIDER`/`_BASE_URL`/`_MODEL` is the
-  remaining dependency. The live smoke test used a **loopback fake** serving
-  canned replies — it proves the wire, the env contract and secret containment,
-  **not** that any model answers these questions well.
+- **Gemini is configured but its key is rejected.** Google answers every
+  request with HTTP 400 `INVALID_ARGUMENT` "Invalid Auth key." (§5c). No live
+  model reply has been observed, so model behaviour and `json_object`
+  compatibility are both unverified. The earlier loopback-fake test proves the
+  wire, the env contract and secret containment, **not** model quality.
 - **No model evaluation has been performed.** Every natural-language test uses
   a fixture reply, including `tests/test_nl_examples.py`. No accuracy claim can
   be drawn from them; a live evaluation would be a separate exercise.
@@ -512,9 +551,10 @@ validation as any manual change. Generating a draft does not run it.
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline backend suite — 360 passed (127 -> 227 validator,
-# 227 -> 265 execution, 265 -> 360 natural-language drafting plus the
-# truncation and derived-identity tests; nothing regressed at any step)
+# Full offline backend suite — 370 passed (127 -> 227 validator,
+# 227 -> 265 execution, 265 -> 361 natural-language drafting,
+# 361 -> 370 policy-request handling and scrubbed provider errors;
+# nothing regressed at any step)
 venv/Scripts/python.exe -m pytest
 
 # Frontend interaction tests — 55 passed. Uses Node's built-in runner and
@@ -526,6 +566,11 @@ cd frontend && npm test
 #   FLOATCHAT_NL_BASE_URL=http://127.0.0.1:8799/v1
 #   FLOATCHAT_NL_MODEL=<name>  [FLOATCHAT_NL_API_KEY=<token>]
 # Verified all four outcomes, date preservation and secret containment.
+
+# Backend with the Gemini settings applied (key inherited, never stored):
+powershell -ExecutionPolicy Bypass -File scripts\run_api.ps1
+# Live Gemini smoke, 2026-09-14: 5 requests, all HTTP 400; GET /models ->
+# INVALID_ARGUMENT "Invalid Auth key." No model reply observed.
 
 # Bounded WOA cache build — 6 cells attempted, 6 failed (NCEI 503 outage)
 venv/Scripts/python.exe scripts/data_feasibility/build_woa_cache.py --variables temp

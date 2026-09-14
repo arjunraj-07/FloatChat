@@ -72,6 +72,9 @@ class DraftOutcome(str, Enum):
 PATCH_FIELDS = ("time", "region", "depth", "variables", "analyses",
                 "outputs", "selection")
 
+#: Plan sections the schema defines but a question may not change.
+POLICY_FIELDS = ("qc_policy",)
+
 MAX_ASSUMPTIONS = 8
 MAX_CLARIFICATION_CHARS = 400
 
@@ -168,6 +171,13 @@ def build_system_prompt(index) -> str:
             "known_float_ids, and only if the user names one.",
             "Only set a field the question actually determines. Omit every "
             "other field so the user's existing settings are kept.",
+            "A question that names a variable determines variables, and one "
+            "that names a depth determines depth. Set every field the question "
+            "names: 'temperature at 100 m' sets both variables and depth.",
+            "The QC and data-mode policy cannot be changed through a question. "
+            "If the user asks to include other QC flags or data modes, use "
+            "intent 'unsupported' and name that request in "
+            "unsupported_requests.",
             "Never move a requested date or region to where cached data "
             "happens to exist. Propose what was asked.",
             "If the question is ambiguous about time, region or comparison, "
@@ -344,6 +354,50 @@ def _unsupported_from_registry(plan: QueryPlanRequest) -> list:
     return problems
 
 
+def _policy_change_requests(fields: list, stored_flags: set) -> list:
+    """A policy change the model attempted, reported rather than applied."""
+    return [{
+        "requested": f"change {field}",
+        "kind": "policy",
+        "reason": (
+            "The QC and data-mode policy cannot be changed through a question; "
+            "it stays as set in the query controls. The processed tables also "
+            f"retain only levels with QC flags {sorted(stored_flags)}, so other "
+            "flags (for example QC=4) could not be served even if set manually: "
+            "excluded levels were dropped at ingestion and cannot be "
+            "reconstructed from the stored data."
+        ),
+    } for field in fields]
+
+
+def _declared_unsupported(declared: Any, already: list) -> list:
+    """Unsupported requests the model named that the registry did not.
+
+    A declaration naming an *implemented* analysis or output is overruled: the
+    registry, not the model, decides support. Anything else - a request the
+    schema cannot express at all - is surfaced, so it is never silently
+    dropped from the reply.
+    """
+    implemented = {a.value for a in Analysis
+                   if ANALYSIS_CAPABILITIES[a].implemented}
+    implemented |= {o.value for o in Output
+                    if OUTPUT_CAPABILITIES[o].implemented}
+    seen = {item["requested"] for item in already}
+    surfaced = []
+    for text in _clean_strings(declared, 5):
+        key = text.strip().lower().replace(" ", "_")
+        if key in implemented or text in seen or key in seen:
+            continue
+        seen.add(text)
+        surfaced.append({
+            "requested": text,
+            "kind": "request",
+            "reason": ("The planner reported that this part of the question "
+                       "cannot be expressed as a supported query."),
+        })
+    return surfaced
+
+
 def _envelope(outcome: DraftOutcome, **extra) -> dict:
     payload = {
         "schema_version": PLAN_SCHEMA_VERSION,
@@ -491,6 +545,16 @@ def draft_plan(question: str, context: Optional[dict], index,
     previous_normalized = normalize_context(context)
     changes = diff_plans(previous_normalized, normalized, touched)
 
+    # A policy field the model tried to set is not an unknown field: the
+    # schema defines it, but a question may not change it. It is reported as
+    # an unsupported request rather than folded into the ignored-field note.
+    policy_fields = [field for field in ignored if field in POLICY_FIELDS]
+    ignored = [field for field in ignored if field not in POLICY_FIELDS]
+    unsupported.extend(_policy_change_requests(policy_fields,
+                                               index.all_stored_qc_flags))
+    unsupported.extend(_declared_unsupported(raw.get("unsupported_requests"),
+                                             unsupported))
+
     if ignored:
         assumptions.append(
             "Ignored field(s) the schema does not define: " + ", ".join(ignored)
@@ -499,10 +563,17 @@ def draft_plan(question: str, context: Optional[dict], index,
     outcome = (DraftOutcome.UNSUPPORTED_REQUEST if unsupported
                else DraftOutcome.PROPOSED_DRAFT)
 
+    # When the reply's only content is something unsupported there is nothing
+    # to apply; offering the unchanged draft would imply the request had been
+    # handled.
+    has_changes = any(change.origin != "retained" for change in changes)
+    offer_plan = outcome is DraftOutcome.PROPOSED_DRAFT or has_changes
+
     return _envelope(
         outcome,
-        proposed_plan=plan.model_dump(mode="json", exclude_none=True),
-        normalized_plan=normalized,
+        proposed_plan=(plan.model_dump(mode="json", exclude_none=True)
+                       if offer_plan else None),
+        normalized_plan=normalized if offer_plan else None,
         changes=[change.as_dict() for change in changes],
         retained_fields=retained_fields(previous_normalized, normalized),
         assumptions=assumptions,

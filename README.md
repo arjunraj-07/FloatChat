@@ -38,6 +38,15 @@ cd api
 ..\venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
 
+On Windows, `scripts\run_api.ps1` starts the same API with the
+natural-language settings applied (Gemini's OpenAI-compatible endpoint). It
+stores no secret: the key is inherited from `FLOATCHAT_NL_API_KEY`, and without
+it the API still starts and manual query building works.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_api.ps1
+```
+
 Explorer endpoints: `/api/health`, `/api/coverage`, `/api/floats`,
 `/api/profiles/{profile_id}`, `/api/woa_match/{profile_id}`.
 
@@ -84,7 +93,7 @@ that it is not configured and **manual query building is unaffected**.
 | `FLOATCHAT_NL_TIMEOUT_S` | Request timeout, default `20`. |
 | `FLOATCHAT_NL_MAX_OUTPUT_TOKENS` | Output cap, default `1200`. |
 | `FLOATCHAT_NL_MAX_QUESTION_CHARS` | Question length cap, default `600`. |
-| `FLOATCHAT_NL_RESPONSE_FORMAT` | `json_object` (default), `json_schema`, `none`. |
+| `FLOATCHAT_NL_RESPONSE_FORMAT` | `json_object` (default), `json_schema`, `none`. Google's Gemini structured-output examples use the `json_schema` form. |
 
 Example, pointing at a local Ollama server:
 

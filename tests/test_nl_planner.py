@@ -186,18 +186,56 @@ def test_a_region_is_not_silently_narrowed():
 
 
 def test_qc_policy_is_not_relaxed_by_the_model():
-    """qc_policy is not a patchable field, so it cannot be loosened."""
+    """qc_policy is not patchable: the request is reported, never applied."""
     result, _ = run({
         "intent": "draft",
         "plan_patch": {"qc_policy": {"accepted_qc_flags": [1, 2, 3],
                                      "data_modes": ["R"]}},
     })
-    # The patch is ignored, so the schema default stands rather than the
-    # loosened flags the model asked for.
-    policy = result["proposed_plan"]["qc_policy"]
-    assert policy["accepted_qc_flags"] == [1]
-    assert policy["data_modes"] == ["R", "A", "D"]
-    assert any("qc_policy" in a for a in result["assumptions"])
+    assert result["outcome"] == DraftOutcome.UNSUPPORTED_REQUEST.value
+    # Nothing else changed, so there is nothing to apply.
+    assert result["proposed_plan"] is None
+    policy = [u for u in result["unsupported"] if u["kind"] == "policy"]
+    assert policy
+    assert "cannot be changed through a question" in policy[0]["reason"]
+    # qc_policy is a schema field, so it is not misreported as unknown.
+    assert not any("does not define" in a and "qc_policy" in a
+                   for a in result["assumptions"])
+
+
+def test_a_qc_request_names_the_stored_flags_from_the_data():
+    result, _ = run({"intent": "unsupported",
+                     "plan_patch": {"qc_policy": {"accepted_qc_flags": [4]}},
+                     "unsupported_requests": ["include QC=4 observations"]})
+    reason = next(u["reason"] for u in result["unsupported"]
+                  if u["kind"] == "policy")
+    assert str(sorted(INDEX.all_stored_qc_flags)) in reason
+    assert "cannot be reconstructed" in reason
+
+
+def test_a_policy_request_alongside_a_real_change_keeps_the_change():
+    result, _ = run({"intent": "draft",
+                     "plan_patch": {"variables": ["temp", "psal"],
+                                    "qc_policy": {"accepted_qc_flags": [4]}}})
+    assert result["outcome"] == DraftOutcome.UNSUPPORTED_REQUEST.value
+    assert result["proposed_plan"]["variables"] == ["temp", "psal"]
+    assert result["proposed_plan"]["qc_policy"]["accepted_qc_flags"] == [1]
+
+
+def test_a_declared_unsupported_request_is_surfaced_not_dropped():
+    result, _ = run({"intent": "unsupported", "plan_patch": {},
+                     "unsupported_requests": ["include QC=4 observations"]})
+    assert result["outcome"] == DraftOutcome.UNSUPPORTED_REQUEST.value
+    assert result["proposed_plan"] is None
+    assert result["unsupported"][0]["requested"] == "include QC=4 observations"
+    assert result["unsupported"][0]["kind"] == "request"
+
+
+def test_the_prompt_asks_for_every_named_field_and_forbids_policy_changes():
+    _, provider = run({"intent": "draft", "plan_patch": {}})
+    rules = " ".join(json.loads(provider.calls[0]["system"])["hard_rules"])
+    assert "sets both variables and depth" in rules
+    assert "cannot be changed through a question" in rules
 
 
 def test_unknown_patch_fields_are_ignored_and_reported():
@@ -557,6 +595,62 @@ def test_adapter_gateway_timeouts_become_timeouts(status):
     provider = OpenAICompatibleProvider(settings(), session=session)
     with pytest.raises(ProviderTimeout):
         provider.complete_json("s", "u")
+
+
+def test_a_google_style_error_body_is_surfaced_and_scrubbed():
+    """Gemini returns a list of {"error": {...}}; keep status and message."""
+    key = "AIzaSyEXAMPLEexampleEXAMPLE123456"
+    body = [{"error": {"code": 400, "status": "INVALID_ARGUMENT",
+                       "message": f"API key not valid: {key}"}}]
+    session = FakeSession(FakeResponse(400, body))
+    provider = OpenAICompatibleProvider(settings(api_key=key), session=session)
+    with pytest.raises(ProviderError) as exc:
+        provider.complete_json("s", "u")
+    text = str(exc.value)
+    assert "HTTP 400" in text and "INVALID_ARGUMENT" in text
+    assert "API key not valid" in text
+    assert key not in text and "[redacted]" in text
+
+
+def test_an_openai_style_error_body_is_surfaced():
+    body = {"error": {"type": "invalid_request_error",
+                      "message": "Unknown parameter: response_format"}}
+    session = FakeSession(FakeResponse(400, body))
+    provider = OpenAICompatibleProvider(settings(), session=session)
+    with pytest.raises(ProviderError) as exc:
+        provider.complete_json("s", "u")
+    assert "invalid_request_error" in str(exc.value)
+    assert "response_format" in str(exc.value)
+
+
+def test_bearer_tokens_and_google_key_shapes_are_always_scrubbed():
+    """Even a key that is not the configured one never passes through."""
+    body = {"error": {"message": "Bearer abc.def.ghi rejected; "
+                                 "saw AIzaOTHERkeyOTHERkeyOTHER99"}}
+    session = FakeSession(FakeResponse(401, body))
+    provider = OpenAICompatibleProvider(settings(), session=session)
+    with pytest.raises(ProviderError) as exc:
+        provider.complete_json("s", "u")
+    text = str(exc.value)
+    assert "abc.def.ghi" not in text and "AIzaOTHER" not in text
+
+
+def test_a_non_json_error_body_falls_back_to_the_status_only():
+    session = FakeSession(FakeResponse(400, None))
+    provider = OpenAICompatibleProvider(settings(), session=session)
+    with pytest.raises(ProviderError) as exc:
+        provider.complete_json("s", "u")
+    assert str(exc.value) == "The natural-language service returned HTTP 400."
+
+
+def test_a_long_error_detail_is_capped():
+    from floatchat_core.nl_provider import MAX_ERROR_DETAIL_CHARS
+
+    session = FakeSession(FakeResponse(400, {"error": {"message": "x" * 5000}}))
+    provider = OpenAICompatibleProvider(settings(), session=session)
+    with pytest.raises(ProviderError) as exc:
+        provider.complete_json("s", "u")
+    assert len(str(exc.value)) < MAX_ERROR_DETAIL_CHARS + 80
 
 
 def test_a_transport_timeout_becomes_a_provider_timeout():

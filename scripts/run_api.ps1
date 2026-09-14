@@ -15,10 +15,13 @@
 param(
     [int]$Port = 8000,
     [string]$BindHost = '127.0.0.1',
-    # Structured-output mode. Gemini's OpenAI-compatibility layer does not
-    # document `response_format`, and states that unlisted parameters are
-    # silently ignored. 'json_object' is the adapter default; switch to
-    # 'json_schema' or 'none' if replies come back as prose.
+    # Structured-output mode. Google's OpenAI-compatibility docs DO pass
+    # `response_format` in their structured-output examples (Python
+    # `response_format=Model`, JavaScript `zodResponseFormat(...)`); the
+    # OpenAI SDKs send those as {"type": "json_schema", ...}. The docs do not
+    # show the {"type": "json_object"} form this adapter sends by default, so
+    # json_object remains unverified against Gemini until a request succeeds.
+    # 'json_schema' matches the documented form.
     [ValidateSet('json_object', 'json_schema', 'none')]
     [string]$ResponseFormat = 'json_object'
 )

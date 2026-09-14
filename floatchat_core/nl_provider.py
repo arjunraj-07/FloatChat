@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 
@@ -47,6 +48,44 @@ DEFAULT_MAX_QUESTION_CHARS = 600
 #: OpenAI-compatible servers. ``json_schema`` is stricter where available.
 DEFAULT_RESPONSE_FORMAT = "json_object"
 RESPONSE_FORMATS = ("json_schema", "json_object", "none")
+
+
+#: Longest provider error detail passed back to the caller.
+MAX_ERROR_DETAIL_CHARS = 240
+
+
+def _provider_error_detail(response: Any, secret: Optional[str]) -> Optional[str]:
+    """A short, credential-scrubbed summary of a provider's error body.
+
+    A bare "HTTP 400" cannot distinguish an invalid key from an unknown model
+    or a rejected parameter. Providers put that distinction in the body - an
+    OpenAI-style ``{"error": {"type", "message"}}`` or a Google-style list of
+    ``{"error": {"status", "message"}}`` - so the status and message are kept,
+    with the configured key, bearer tokens and Google key shapes removed.
+    """
+    try:
+        body = response.json()
+    except Exception:  # noqa: BLE001 - a non-JSON error body has no detail
+        return None
+    if isinstance(body, list) and body:
+        body = body[0]
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, str):
+        parts = [error]
+    elif isinstance(error, dict):
+        status = error.get("status") or error.get("type") or error.get("code")
+        parts = [str(part) for part in (status, error.get("message")) if part]
+    else:
+        return None
+    if not parts:
+        return None
+    text = " - ".join(parts)
+    if secret:
+        text = text.replace(secret, "[redacted]")
+    text = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", text)
+    text = re.sub(r"AIza[0-9A-Za-z_\-]{10,}", "[redacted]", text)
+    text = " ".join(text.split())
+    return text[:MAX_ERROR_DETAIL_CHARS]
 
 
 class ProviderNotConfigured(RuntimeError):
@@ -223,8 +262,10 @@ class OpenAICompatibleProvider:
                 f"The natural-language service timed out (HTTP {status})."
             )
         if status >= 400:
+            detail = _provider_error_detail(response, self.settings.api_key)
             raise ProviderError(
-                f"The natural-language service returned HTTP {status}."
+                f"The natural-language service returned HTTP {status}"
+                + (f": {detail}" if detail else ".")
             )
         try:
             return response.json()
