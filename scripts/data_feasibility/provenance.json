@@ -1,0 +1,10 @@
+{
+  "oisst_event": {
+    "source_url": "https://psl.noaa.gov/thredds/dodsC/Datasets/noaa.oisst.v2.highres/sst.day.mean.2024.nc",
+    "time_range": [
+      "2024-01-01",
+      "2024-06-30"
+    ],
+    "records": 182
+  }
+}
