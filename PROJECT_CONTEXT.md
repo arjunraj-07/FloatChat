@@ -473,10 +473,36 @@ environment. The key is never written to a file.
   and identical. A native `GET /v1beta/models` (`x-goog-api-key`) returned
   HTTP 200 listing 56 models, including `models/gemini-3.1-flash-lite`. The
   OpenAI-compatible `GET /v1beta/openai/models` (Bearer) returned HTTP 200 and
-  also lists it. **Only authentication and model listing are verified.** No
-  generation request has been sent with this key, so model behaviour, accuracy
-  and `json_object` structured output remain unverified. The five smoke tests
-  are still pending.
+  also lists it.
+- **Generation smoke tests: 5 scenarios, 8 generation requests over two
+  rounds, no retries.** Round 1 had three HTTP 503 capacity errors from
+  Gemini; those three scenarios were re-run in round 2. Every reply that got
+  through was bare JSON under `json_object` (5 of 5). That is evidence, not
+  proof, that structured output holds; the adapter still extracts and
+  validates defensively. This is a smoke test, not an accuracy benchmark.
+  - "Show temperature at 100 m" from a salinity-only draft: `variables` and
+    `depth` changed; region, dates and QC retained; validator
+    `valid_partial_coverage`. Pass.
+  - "Show temperature and salinity between 0 and 200 m" from temperature-only,
+    0-500 m: `variables` and `depth` changed; the rest retained; validator
+    `valid_partial_coverage`. Pass.
+  - "Show temperature in June 2019": only `time` changed; 2019 kept rather
+    than moved to 2024; validator `valid_no_data`. Pass (see the date note).
+  - "Detect a marine heatwave": `unsupported_request` naming
+    `marine_heatwave_detection`, no proposal. Pass, but the reason shown is the
+    generic planner text rather than the registry's documented reason.
+  - "Include QC=4 observations": `unsupported_request`, no proposal, QC
+    unchanged. **Partial:** the explanation is generic, not the QC-policy
+    reason. The model named the request instead of patching `qc_policy`, and
+    only the patch path produces the policy-specific reason, even though the
+    prompt tells the model to name such requests.
+- **Date normalization, recorded not fixed**
+  (`tests/test_date_normalization_known_issues.py`,
+  `frontend/tests/dateNormalization.test.ts`). A date-only end
+  (`2019-06-30`) parses to 00:00 that day in the backend, although the planner
+  prompt promises end of day. Accepting a proposal with naive timestamps
+  re-reads them in browser-local time, while the backend reads them as UTC: in
+  UTC+5:30, June 2019 shifts to `2019-05-31T18:30Z`..`2019-06-30T18:29:59Z`.
 
 Fixes made while testing:
 
@@ -516,12 +542,14 @@ Fixes made while testing:
   milestone; typed API response models are deferred to the next one.
 - Only the shallowest matchable reference depth populates the legacy scalar
   response fields; the full set is in `matches[]`.
-- **Gemini authentication is verified; generation is not.** With the
-  replacement key, both the native and the OpenAI-compatible model listings
-  return HTTP 200 and include `gemini-3.1-flash-lite` (§5c). No generation
-  request has been sent with it, so model behaviour and `json_object`
-  compatibility are both unverified. The earlier loopback-fake test proves the
-  wire, the env contract and secret containment, **not** model quality.
+- **Gemini generation is smoke-tested, not evaluated.** All five scenarios
+  ran on `gemini-3.1-flash-lite` (§5c): four passed and the QC=4 case
+  passed only partially. This is not an accuracy benchmark, and five bare-JSON
+  replies do not prove structured output is enforced. Unsupported-analysis and
+  QC-policy requests currently surface only a generic reason when the model
+  names them rather than patching the plan.
+- **Two date-normalization issues are recorded, not fixed**: a strict xfail
+  (backend) and a `todo` test (frontend); see §5c.
 - **No model evaluation has been performed.** Every natural-language test uses
   a fixture reply, including `tests/test_nl_examples.py`. No accuracy claim can
   be drawn from them; a live evaluation would be a separate exercise.
@@ -563,13 +591,13 @@ Fixes made while testing:
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline backend suite — 370 passed (127 -> 227 validator,
+# Full offline backend suite — 374 passed + 1 strict xfail (127 -> 227 validator,
 # 227 -> 265 execution, 265 -> 361 natural-language drafting,
-# 361 -> 370 policy-request handling and scrubbed provider errors;
-# nothing regressed at any step)
+# 361 -> 370 policy-request handling and scrubbed provider errors,
+# 370 -> 374 + 1 xfail date-normalization cases; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 55 passed. Uses Node's built-in runner and
+# Frontend interaction tests — 57 passed + 1 todo (known issue). Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -584,7 +612,8 @@ powershell -ExecutionPolicy Bypass -File scripts\run_api.ps1
 # Live Gemini, 2026-09-14. First credential: 5 draft requests HTTP 400;
 # compat GET /models 400 "Invalid Auth key."; native GET /v1beta/models 401.
 # Replacement credential: native and compat model listings both HTTP 200,
-# gemini-3.1-flash-lite listed. No generation request sent yet.
+# gemini-3.1-flash-lite listed. Generation smoke: 8 requests over two rounds,
+# no retries; round 1 had three HTTP 503 capacity errors, re-run in round 2.
 
 # Bounded WOA cache build — 6 cells attempted, 6 failed (NCEI 503 outage)
 venv/Scripts/python.exe scripts/data_feasibility/build_woa_cache.py --variables temp
