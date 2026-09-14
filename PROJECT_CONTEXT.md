@@ -665,11 +665,14 @@ guessed.
   passing regression tests. Still open from the smoke test: the generic
   reasons for marine-heatwave and QC=4 requests the model names instead of
   patching. The Next.js development badge can overlap a corner in dev mode.
-- **Observed once, not reproduced (2026-09-15):** the backend process exited
-  without a traceback right after netCDF printed OPeNDAP parse errors on an
-  NCEI "503 Service Unavailable" page during a WOA network read. A rerun of
-  the same browser checks did not repeat it. Remote WOA reads may be able to
-  terminate the API process; `FLOATCHAT_WOA_ALLOW_NETWORK=0` avoids them.
+- **Remote WOA reads can terminate the API (reproduced twice, 2026-09-15).**
+  While NCEI served "503 Service Unavailable" HTML, netCDF printed OPeNDAP
+  parse errors during a WOA network read and the backend process exited
+  with no traceback, shortly after each headless-Chrome run (all checks had
+  passed). The WOA code was not changed by §5e. Until the read is isolated
+  from the server process, run with `FLOATCHAT_WOA_ALLOW_NETWORK=0`; the
+  cached grid cell still works and other cells report the comparison as
+  unavailable.
 - **No model evaluation has been performed.** Every natural-language test uses
   a fixture reply, including `tests/test_nl_examples.py`. No accuracy claim can
   be drawn from them; a live evaluation would be a separate exercise.
