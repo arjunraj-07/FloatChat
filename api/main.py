@@ -1,11 +1,34 @@
+"""FloatChat Explorer API.
+
+All numerical results are produced by :mod:`floatchat_core`. This module reads
+the processed tables, selects rows and shapes responses; it contains no
+scientific logic of its own.
+"""
+
+import json
 import os
+import sys
+from functools import lru_cache
+
+import pandas as pd
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import pandas as pd
-import numpy as np
-import xarray as xr
-from typing import List, Dict, Any
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+from floatchat_core.qc import ARGO_VARIABLE_DEFINITIONS  # noqa: E402
+from floatchat_core.woa import (  # noqa: E402
+    DEFAULT_FETCH_TIMEOUT_S,
+    DEFAULT_MAX_GAP_M,
+    WOA_PRODUCT,
+    json_safe,
+    match_value_at_depth,
+    matchable_reference_depths,
+    reference_column,
+)
 
 app = FastAPI(title="FloatChat Explorer API")
 
@@ -17,176 +40,336 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load data
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROC_DIR = os.path.join(BASE_DIR, "scripts", "data_feasibility", "data", "processed")
 
 df_prof = pd.read_parquet(os.path.join(PROC_DIR, "argo_profiles.parquet"))
 df_obs = pd.read_parquet(os.path.join(PROC_DIR, "argo_observations.parquet"))
 
+
+def _load_processing_report():
+    path = os.path.join(PROC_DIR, "processing_report.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+PROCESSING_REPORT = _load_processing_report()
+
+#: Remote reference reads can be disabled entirely, e.g. in CI.
+WOA_ALLOW_NETWORK = os.environ.get("FLOATCHAT_WOA_ALLOW_NETWORK", "1") != "0"
+WOA_TIMEOUT_S = float(
+    os.environ.get("FLOATCHAT_WOA_TIMEOUT_S", DEFAULT_FETCH_TIMEOUT_S)
+)
+MAX_GAP_M = float(os.environ.get("FLOATCHAT_MAX_GAP_M", DEFAULT_MAX_GAP_M))
+
+COMPARISON_LIMITATIONS = [
+    "The reference climatology is a monthly mean on a "
+    f"{WOA_PRODUCT['resolution_deg']:.2f}-degree grid; the comparison cell is "
+    "the nearest grid cell, not the exact float position.",
+    "A difference from the climatological mean is not a statistical anomaly. "
+    "No significance test has been applied.",
+    "A positive temperature difference does not establish a marine heatwave; "
+    "that requires a daily series and a documented percentile baseline.",
+]
+
+
+def _cell(value):
+    """Scalar from a DataFrame cell, with pandas NA mapped to ``None``."""
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return None
+    return value
+
+
+def _profile_meta(profile_id: str):
+    rows = df_prof[df_prof["profile_id"] == profile_id]
+    if rows.empty:
+        return None
+    return rows.iloc[0]
+
+
+def _profile_observations(profile_id: str) -> pd.DataFrame:
+    return df_obs[df_obs["profile_id"] == profile_id].sort_values("depth")
+
+
+@app.get("/api/health")
+def health():
+    return json_safe({
+        "status": "ok",
+        "observations": int(len(df_obs)),
+        "profiles": int(df_prof["profile_id"].nunique()),
+        "woa_network_enabled": WOA_ALLOW_NETWORK,
+    })
+
+
 @app.get("/api/coverage")
 def get_coverage():
-    return {
-        "dataset": "ERDDAP GDAC Argo (Jan 1-10 2024)",
+    counts = (PROCESSING_REPORT or {}).get("counts", {})
+    exclusions = (PROCESSING_REPORT or {}).get("exclusions", {})
+    provenance = (PROCESSING_REPORT or {}).get("provenance", {})
+    return json_safe({
+        "dataset": "ERDDAP GDAC Argo (cached regional subset)",
         "label": "cached historical observations",
-        "distinct_floats": int(df_prof['platform'].nunique()),
-        "distinct_profiles": int(df_prof['profile_id'].nunique()),
+        "distinct_floats": int(df_prof["platform"].nunique()),
+        "distinct_profiles": int(df_prof["profile_id"].nunique()),
+        "observation_count": int(len(df_obs)),
+        "temperature_only_observations": int(df_obs["psal"].isna().sum()),
         "date_range": [
-            df_prof['time'].min().isoformat(),
-            df_prof['time'].max().isoformat()
+            df_prof["time"].min().isoformat(),
+            df_prof["time"].max().isoformat(),
         ],
         "bounding_box": {
-            "west": float(df_prof['longitude'].min()),
-            "east": float(df_prof['longitude'].max()),
-            "south": float(df_prof['latitude'].min()),
-            "north": float(df_prof['latitude'].max()),
-        }
-    }
+            "west": float(df_prof["longitude"].min()),
+            "east": float(df_prof["longitude"].max()),
+            "south": float(df_prof["latitude"].min()),
+            "north": float(df_prof["latitude"].max()),
+        },
+        "depth_range_m": [
+            float(df_obs["depth"].min()),
+            float(df_obs["depth"].max()),
+        ],
+        "data_modes": {
+            str(k): int(v) for k, v in df_prof["data_mode"].value_counts().items()
+        },
+        "variable_definitions": ARGO_VARIABLE_DEFINITIONS,
+        "provenance": {
+            "dataset_id": provenance.get("dataset_id"),
+            "source_url": provenance.get("source_url"),
+            "raw_file_checksum": provenance.get("raw_file_checksum"),
+            "processed_at": provenance.get("processed_at"),
+            "policy": provenance.get("policy"),
+        },
+        "exclusions": exclusions,
+        "counts_reported_by_processing": counts,
+    })
+
 
 @app.get("/api/floats")
 def get_floats():
     floats = {}
     for _, row in df_prof.iterrows():
-        plat = str(row['platform'])
-        if plat not in floats:
-            floats[plat] = {
-                "platform": plat,
-                "profiles": []
-            }
-        floats[plat]["profiles"].append({
-            "profile_id": row['profile_id'],
-            "cycle": row['cycle'],
-            "direction": row['direction'],
-            "data_mode": row['data_mode'],
-            "time": row['time'].isoformat(),
-            "latitude": float(row['latitude']),
-            "longitude": float(row['longitude']),
-            "depth_min": float(row['depth_min']) if not pd.isna(row['depth_min']) else None,
-            "depth_max": float(row['depth_max']) if not pd.isna(row['depth_max']) else None,
-            "temp_count": int(row['temp_count']),
-            "psal_count": int(row['psal_count'])
+        platform = str(row["platform"])
+        entry = floats.setdefault(platform, {"platform": platform, "profiles": []})
+        entry["profiles"].append({
+            "profile_id": row["profile_id"],
+            "cycle": int(row["cycle"]),
+            "direction": row["direction"],
+            "data_mode": row["data_mode"],
+            "time": row["time"].isoformat(),
+            "latitude": float(row["latitude"]),
+            "longitude": float(row["longitude"]),
+            "depth_min": _cell(row["depth_min"]),
+            "depth_max": _cell(row["depth_max"]),
+            "temp_count": int(row["temp_count"]),
+            "psal_count": int(row["psal_count"]),
+            "psal_excluded_count": int(row["psal_excluded_count"])
+            if "psal_excluded_count" in row else None,
+            "source_field": _cell(row.get("source_field")),
         })
-    return list(floats.values())
+    for entry in floats.values():
+        entry["profiles"].sort(key=lambda p: p["time"])
+        entry["profile_count"] = len(entry["profiles"])
+    return json_safe(sorted(floats.values(), key=lambda f: f["platform"]))
+
 
 @app.get("/api/profiles/{profile_id}")
 def get_profile(profile_id: str):
-    prof_data = df_obs[df_obs['profile_id'] == profile_id].copy()
+    prof_data = _profile_observations(profile_id)
     if prof_data.empty:
         raise HTTPException(status_code=404, detail="Profile not found")
-        
-    prof_data = prof_data.sort_values('depth')
-    
-    # Metadata
-    meta = df_prof[df_prof['profile_id'] == profile_id].iloc[0]
-    
+    meta = _profile_meta(profile_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Profile metadata not found")
+
     observations = []
     for _, row in prof_data.iterrows():
         observations.append({
-            "pres": float(row['pres']),
-            "depth": float(row['depth']),
-            "temp": float(row['temp']) if not pd.isna(row['temp']) else None,
-            "psal": float(row['psal']) if not pd.isna(row['psal']) else None,
-            "source_field": row['source_field']
+            "pres": float(row["pres"]),
+            "pres_qc": _cell(row.get("pres_qc")),
+            "depth": float(row["depth"]),
+            "temp": _cell(row["temp"]),
+            "temp_qc": _cell(row.get("temp_qc")),
+            "psal": _cell(row["psal"]),
+            "psal_qc": _cell(row.get("psal_qc")),
+            "psal_status": _cell(row.get("psal_status")),
+            "psal_exclusion_reason": _cell(row.get("psal_exclusion_reason")),
+            "source_field": row["source_field"],
         })
-        
-    return {
+
+    psal_present = int(prof_data["psal"].notna().sum())
+    return json_safe({
         "profile_id": profile_id,
-        "platform": str(meta['platform']),
-        "cycle": int(meta['cycle']),
-        "data_mode": str(meta['data_mode']),
-        "time": meta['time'].isoformat(),
-        "latitude": float(meta['latitude']),
-        "longitude": float(meta['longitude']),
+        "platform": str(meta["platform"]),
+        "cycle": int(meta["cycle"]),
+        "direction": _cell(meta.get("direction")),
+        "data_mode": str(meta["data_mode"]),
+        "time": meta["time"].isoformat(),
+        "latitude": float(meta["latitude"]),
+        "longitude": float(meta["longitude"]),
         "observations": observations,
+        "qc": {
+            "accepted_qc_flags": [1],
+            "level_count": int(len(observations)),
+            "temperature_levels": int(prof_data["temp"].notna().sum()),
+            "salinity_levels": psal_present,
+            "salinity_excluded_levels": int(len(observations) - psal_present),
+            "source_field": str(meta.get("source_field", "")) or None,
+            "note": "Levels without valid salinity retain their temperature "
+                    "value and are not continuous salinity observations.",
+        },
+        "variable_definitions": ARGO_VARIABLE_DEFINITIONS,
         "metadata": {
             "source": "ERDDAP/GDAC",
-            "mhw_detection": "Not yet available"
-        }
+            "dataset_id": _cell(meta.get("dataset_id")),
+            "source_url": _cell(meta.get("source_url")),
+            "retrieved_at": _cell(meta.get("retrieved_at")),
+            "mhw_detection": "Not yet available",
+        },
+    })
+
+
+@lru_cache(maxsize=256)
+def _cached_reference_column(variable: str, month: int, lat_key: float,
+                             lon_key: float):
+    """Process-level memo over the on-disk cache / bounded remote read."""
+    return reference_column(
+        variable, month, lat_key, lon_key,
+        allow_network=WOA_ALLOW_NETWORK, timeout_s=WOA_TIMEOUT_S,
+    )
+
+
+def _unavailable(reason: str, **extra):
+    payload = {
+        "status": "Comparison unavailable",
+        "reason": reason,
+        "reference_product": WOA_PRODUCT["name"],
+        "baseline_period": WOA_PRODUCT["period"],
+        "limitations": COMPARISON_LIMITATIONS,
     }
+    payload.update(extra)
+    return json_safe(payload)
+
 
 @app.get("/api/woa_match/{profile_id}")
-def woa_match(profile_id: str):
-    prof_data = df_obs[df_obs['profile_id'] == profile_id].copy()
+def woa_match(profile_id: str, variable: str = "temp"):
+    if variable not in WOA_PRODUCT["variables"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"variable must be one of {sorted(WOA_PRODUCT['variables'])}",
+        )
+
+    prof_data = _profile_observations(profile_id)
     if prof_data.empty:
         raise HTTPException(status_code=404, detail="Profile not found")
-        
-    prof_data = prof_data.sort_values('depth').dropna(subset=['temp'])
-    if prof_data.empty:
-        return {"status": "Comparison unavailable", "reason": "No valid temperature data"}
-        
-    lat = prof_data['latitude'].iloc[0]
-    lon = prof_data['longitude'].iloc[0]
-    time = prof_data['time'].iloc[0]
-    month = pd.to_datetime(time).month
-    
-    # WOA standard depths (subset)
-    woa_depths = np.array([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100])
-    
-    # Find a standard depth bracketed by valid Argo levels
-    argo_min = prof_data['depth'].min()
-    argo_max = prof_data['depth'].max()
-    
-    # Find the shallowest WOA depth that is bracketed
-    valid_woa_depths = woa_depths[(woa_depths >= argo_min) & (woa_depths <= argo_max)]
-    if len(valid_woa_depths) == 0:
-        return {"status": "Comparison unavailable", "reason": "No bracketed standard depth (no extrapolation allowed)"}
-        
-    target_depth = valid_woa_depths[0]
-    
-    # Interpolate Argo to this depth (linear)
-    try:
-        argo_interp = np.interp(target_depth, prof_data['depth'].values, prof_data['temp'].values)
-    except:
-        return {"status": "Comparison unavailable", "reason": "Interpolation failed"}
-        
-    # Check max gap
-    # Find the two closest depths in Argo
-    idx = np.searchsorted(prof_data['depth'].values, target_depth)
-    if idx == 0 or idx == len(prof_data):
-         return {"status": "Comparison unavailable", "reason": "Out of bounds"}
-    
-    d1 = prof_data['depth'].values[idx-1]
-    d2 = prof_data['depth'].values[idx]
-    
-    MAX_GAP = 20.0
-    if (d2 - d1) > MAX_GAP:
-        return {"status": "Comparison unavailable", "reason": f"Gap {d2-d1:.1f}m exceeds max configured gap {MAX_GAP}m"}
-        
-    # Perform WOA lookup
-    woa_url = f"https://www.ncei.noaa.gov/thredds-ocean/dodsC/woa23/DATA/temperature/netcdf/decav91C0/1.00/woa23_decav91C0_t{month:02d}_01.nc"
-    try:
-        ds_woa = xr.open_dataset(woa_url, engine='netcdf4', decode_times=False)
-        
-        # Match nearest depth index
-        idx_depth = (np.abs(ds_woa.depth.values - target_depth)).argmin()
-        actual_woa_depth = ds_woa.depth.values[idx_depth]
-        
-        val_woa = ds_woa['t_an'].sel(
-            lat=lat, lon=lon, method='nearest'
-        ).isel(time=0, depth=idx_depth).values
-        
-        nearest_lat = float(ds_woa['t_an'].sel(lat=lat, method='nearest').lat.values)
-        nearest_lon = float(ds_woa['t_an'].sel(lon=lon, method='nearest').lon.values)
-        
-        offset_lat = nearest_lat - lat
-        offset_lon = nearest_lon - lon
-        
-        diff = float(argo_interp - val_woa)
-        
-        return {
-            "status": "Success",
-            "argo_interpolated_value": float(argo_interp),
-            "woa_reference_value": float(val_woa),
-            "difference": diff,
-            "units": "degrees_celsius",
-            "comparison_depth": float(actual_woa_depth),
-            "month": month,
-            "baseline_period": "1991-2020",
-            "method": "Linear interpolation of Argo within 20m max gap; nearest-neighbor spatial WOA lookup",
-            "spatial_offset": {"lat": float(offset_lat), "lon": float(offset_lon)}
-        }
-    except Exception as e:
-        return {"status": "Comparison unavailable", "reason": f"WOA lookup failed: {str(e)}"}
+
+    valid = prof_data.dropna(subset=[variable, "depth"])
+    if valid.empty:
+        return _unavailable(
+            f"no valid {variable.upper()} levels passed QC for this profile"
+        )
+
+    latitude = float(valid["latitude"].iloc[0])
+    longitude = float(valid["longitude"].iloc[0])
+    month = int(pd.to_datetime(valid["time"].iloc[0]).month)
+
+    column, error = _cached_reference_column(variable, month, latitude, longitude)
+    if column is None:
+        return _unavailable(f"reference retrieval failed: {error}",
+                            month=month)
+
+    ref_depths = column["depths"]
+    ref_values = column["values"]
+    depths = valid["depth"].to_numpy(dtype=float)
+    values = valid[variable].to_numpy(dtype=float)
+
+    candidates = matchable_reference_depths(depths, values, ref_depths)
+    if not candidates:
+        return _unavailable(
+            f"no reference depth falls within the observed range "
+            f"{depths.min():.2f}-{depths.max():.2f} m; extrapolation is not "
+            "permitted",
+            month=month,
+        )
+
+    matches = []
+    rejected = []
+    for target in candidates:
+        idx = ref_depths.index(target)
+        ref_value = ref_values[idx]
+        if ref_value is None or not pd.notna(ref_value):
+            rejected.append({
+                "depth": target,
+                "reason": "reference cell has no value at this depth "
+                          "(land, or outside the analysed domain)",
+            })
+            continue
+        match = match_value_at_depth(depths, values, target, max_gap_m=MAX_GAP_M)
+        if not match.available:
+            rejected.append({"depth": target, "reason": match.reason})
+            continue
+        matches.append({
+            "comparison_depth": float(target),
+            "observed_value": match.value,
+            "reference_value": float(ref_value),
+            "difference": float(match.value - float(ref_value)),
+            "match_method": match.method,
+            "bracketing_depths": [match.lower_depth, match.upper_depth],
+            "gap_m": match.gap_m,
+        })
+
+    if not matches:
+        return _unavailable(
+            "no reference depth could be matched without extrapolating or "
+            f"bridging a gap wider than {MAX_GAP_M:.0f} m",
+            month=month,
+            rejected_depths=rejected,
+        )
+
+    primary = matches[0]
+    method_text = (
+        "exact observed level" if primary["match_method"] == "exact"
+        else f"linear interpolation between observed levels "
+             f"(maximum gap {MAX_GAP_M:.0f} m)"
+    )
+    return json_safe({
+        "status": "Success",
+        "variable": variable,
+        "units": column.get("units"),
+        # Keys below are consumed by the existing Explorer evidence panel.
+        "argo_interpolated_value": primary["observed_value"],
+        "woa_reference_value": primary["reference_value"],
+        "difference": primary["difference"],
+        "comparison_depth": primary["comparison_depth"],
+        "month": month,
+        "baseline_period": column.get("period", WOA_PRODUCT["period"]),
+        "method": f"{method_text}; nearest reference grid cell",
+        "spatial_offset": {
+            "lat": float(column["grid_lat"]) - latitude,
+            "lon": float(column["grid_lon"]) - longitude,
+        },
+        # Additional evidence.
+        "match_method": primary["match_method"],
+        "bracketing_depths": primary["bracketing_depths"],
+        "gap_m": primary["gap_m"],
+        "matches": matches,
+        "rejected_depths": rejected,
+        "reference": {
+            "product": column.get("product", WOA_PRODUCT["name"]),
+            "product_code": column.get("product_code", WOA_PRODUCT["code"]),
+            "variable": column.get("woa_variable"),
+            "definition": WOA_PRODUCT["variables"][variable]["definition"],
+            "compatible_with": WOA_PRODUCT["variables"][variable]["compatible_with"],
+            "resolution_deg": column.get("resolution_deg"),
+            "grid_lat": column.get("grid_lat"),
+            "grid_lon": column.get("grid_lon"),
+            "source_url": column.get("source_url"),
+            "retrieved_at": column.get("retrieved_at"),
+            "origin": column.get("origin"),
+        },
+        "limitations": COMPARISON_LIMITATIONS,
+    })
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,86 @@
+{
+  "counts": {
+    "distinct_floats": 6,
+    "distinct_profiles": 11,
+    "input_rows": 3382,
+    "observations_with_salinity": 690,
+    "retained_observations": 3382,
+    "temperature_only_observations": 2692
+  },
+  "coverage": {
+    "depth_m": [
+      1.1529642520545593,
+      496.3724922756864
+    ],
+    "latitude": [
+      15.518741666666667,
+      19.24811
+    ],
+    "longitude": [
+      61.2556,
+      64.446035
+    ],
+    "time_end": "2024-01-09 08:52:30",
+    "time_start": "2024-01-01 00:50:30"
+  },
+  "exclusions": {
+    "missing_required_field": 0,
+    "pres_missing_value": 0,
+    "pres_qc_malformed": 0,
+    "pres_qc_rejected": 0,
+    "psal_masked": {
+      "missing_value": 2658,
+      "qc_malformed": 0,
+      "qc_rejected": 34
+    },
+    "temp_missing_value": 0,
+    "temp_qc_malformed": 0,
+    "temp_qc_rejected": 0,
+    "unsupported_mode": 0,
+    "unsupported_modes_seen": {}
+  },
+  "provenance": {
+    "dataset_id": "erddap.ifremer.fr/ArgoFloats",
+    "library_versions": {
+      "gsw": "3.6.23",
+      "numpy": "2.4.6",
+      "pandas": "2.3.3",
+      "xarray": "2025.9.0"
+    },
+    "policy": {
+      "accepted_qc_flags": [
+        1
+      ],
+      "depth": "-gsw.z_from_p(pressure, latitude), positive down",
+      "mode_selection": "R -> raw value + raw QC; A/D -> adjusted value + adjusted QC",
+      "salinity": "temperature retained when salinity is missing or fails QC"
+    },
+    "processed_at": "2026-09-14T06:25:25.238459+00:00",
+    "processing_script": "process_argo_data.py",
+    "raw_file": "argo_test_subset_full.nc",
+    "raw_file_checksum": "sha256:93b7d36e848435dee1c91a3ed6405f163ede7a4047cd7bf7ada2558b4bc735db",
+    "raw_file_history": "2026-09-14T05:39:01Z (local files)\n2026-09-14T05:39:01Z https://erddap.ifremer.fr/erddap/tabledap/ArgoFloats.nc?cycle_number,data_mode,direction,latitude,longitude,platform_number,pres,pres_qc,pres_adjusted,pres_adjusted_qc,pres_adjusted_error,temp,temp_qc,temp_adjusted,temp_adjusted_qc,temp_adjusted_error,psal,psal_qc,psal_adjusted,psal_adjusted_qc,psal_adjusted_error,time,time_qc&longitude%3E=60&longitude%3C=65&latitude%3E=15&latitude%3C=20&pres%3E=0&pres%3C=500&time%3E=1704067200.0&time%3C=1704844800.0",
+    "raw_file_title": "Argo Float Measurements",
+    "source_url": "https://erddap.ifremer.fr/erddap/tabledap/ArgoFloats.nc?cycle_number,data_mode,direction,latitude,longitude,platform_number,pres,pres_qc,pres_adjusted,pres_adjusted_qc,pres_adjusted_error,temp,temp_qc,temp_adjusted,temp_adjusted_qc,temp_adjusted_error,psal,psal_qc,psal_adjusted,psal_adjusted_qc,psal_adjusted_error,time,time_qc&longitude>=60&longitude<=65&latitude>=15&latitude<=20&pres>=0&pres<=500&time>=1704067200.0&time<=1704844800.0",
+    "variable_definitions": {
+      "pres": {
+        "argo_name": "PRES",
+        "long_name": "Sea water pressure, equals 0 at sea-level",
+        "note": "Depth is derived as -gsw.z_from_p(pres, latitude).",
+        "units": "decibar"
+      },
+      "psal": {
+        "argo_name": "PSAL",
+        "long_name": "Practical salinity",
+        "note": "Practical Salinity (PSS-78). Not Absolute Salinity.",
+        "units": "psu"
+      },
+      "temp": {
+        "argo_name": "TEMP",
+        "long_name": "Sea temperature in-situ ITS-90 scale",
+        "note": "In-situ temperature. Not Conservative Temperature.",
+        "units": "degree_Celsius"
+      }
+    }
+  }
+}
