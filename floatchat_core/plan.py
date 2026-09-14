@@ -297,8 +297,12 @@ ERROR_CODES = {
     "depth_mode_mismatch": "The depth fields do not match the selected mode.",
     "empty_variable_list": "At least one variable must be requested.",
     # Reference integrity
-    "unknown_platform": "A requested float is not present in the dataset.",
-    "unknown_profile": "A requested profile is not present in the dataset.",
+    "unknown_platform": (
+        "A requested float could not be resolved in the loaded dataset."
+    ),
+    "unknown_profile": (
+        "A requested profile could not be resolved in the loaded dataset."
+    ),
     "profile_platform_mismatch": (
         "A requested profile does not belong to any requested float."
     ),
@@ -315,7 +319,21 @@ ERROR_CODES = {
 WARNING_CODES = {
     "partial_time_coverage": "Matching data covers only part of the date range.",
     "partial_depth_coverage": "Matching data covers only part of the depth range.",
-    "partial_region_coverage": "Matching data occupies part of the region.",
+    "outside_configured_search_region": (
+        "Part of the requested region lies outside the area the archive was "
+        "extracted for, so no data was ever retrieved there."
+    ),
+    "spatial_sampling_is_pointwise": (
+        "Matching data comes from discrete profile positions, not an area "
+        "survey. A bounding box of sample points is not a coverage footprint."
+    ),
+    "default_policy_applied": (
+        "No qc_policy was supplied; the effective default is reported."
+    ),
+    "qc_metadata_incomplete": (
+        "Some stored levels carry no QC flag for a requested variable, so "
+        "compliance cannot be evidenced for them either way."
+    ),
     "variable_unavailable": "A requested variable has no valid values.",
     "variable_partial": "A requested variable is valid on only some levels.",
     "sparse_vertical_sampling": "Observed levels are discrete, not continuous.",

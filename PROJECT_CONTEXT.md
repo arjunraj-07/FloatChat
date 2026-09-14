@@ -40,10 +40,13 @@ Leaflet map is an accepted interim component and must be preserved.**
 | Ingestion | Python 3.11, xarray, gsw, pandas | `scripts/data_feasibility/process_argo_data.py` |
 | Scientific core | Pure Python + numpy | `floatchat_core/` |
 | Plan contract | Pydantic 2 | `floatchat_core/plan.py`, `floatchat_core/plan_validation.py` |
+| Plan execution | Python | `floatchat_core/plan_execution.py` |
 | API | FastAPI + uvicorn | `api/main.py`, `api/plan_routes.py` |
 | Frontend | Next.js 16.3.5, React 19, TypeScript, React-Leaflet, Plotly | `frontend/src/components/Explorer.tsx` |
 | Frontend contract | TypeScript types | `frontend/src/lib/planContract.ts` |
-| Tests | pytest | `tests/` |
+| Frontend draft state | TypeScript | `frontend/src/lib/draftPlan.ts`, `frontend/src/lib/querySession.ts` |
+| Backend tests | pytest | `tests/` |
+| Frontend tests | `node --test` (built in, no test framework added) | `frontend/tests/` |
 
 `floatchat_core/` holds every scientific decision. `api/main.py` selects rows
 and shapes responses; it contains no scientific logic. The ingestion script and
@@ -231,9 +234,115 @@ Validation behaviour that was verified:
   `valid_no_data` with a `data_mode_absent` warning — supported but empty, not
   invalid.
 - **Dangling references are errors, not empty results.** An unknown float or
-  profile is `invalid`, distinguishing "that float does not exist" from "that
-  float has no data in your window". A profile not belonging to a requested
-  float gives `profile_platform_mismatch`.
+  profile is `invalid` (422), described as *could not be resolved in the loaded
+  dataset* — it may exist in the wider Argo archive but is not in the cached
+  subset this instance validates against. This is distinct from "that float has
+  no data in your window". A profile not belonging to a requested float gives
+  `profile_platform_mismatch`.
+
+### Effective policy reporting (Verified)
+
+Every validation carries `effective_policy`, stating the QC flags and data
+modes actually applied and whether each came from the **request** or from the
+**default**. Pydantic's `model_fields_set` distinguishes the two.
+
+- An **omitted** `qc_policy` produces `default_policy_applied`, naming the
+  effective flags and modes and which modes exist in the loaded data. A mode
+  missing only because the caller accepted the default is *not* reported as a
+  shortfall against anything they asked for.
+- An **explicitly requested** mode that no profile uses produces
+  `data_mode_absent`. Mode `A` is supported by the pipeline but absent from the
+  cached subset, so asking for it alone gives `valid_no_data`.
+- Where the stored tables cannot evidence compliance, that is stated rather
+  than assumed. Ingestion clears the salinity flag on levels it excluded, so a
+  plan requesting `psal` gets `qc_metadata_incomplete` naming the number of
+  levels (2,692) for which QC compliance is unknown either way. Temperature has
+  complete QC metadata and produces no such warning.
+
+### Spatial coverage messaging (Verified)
+
+A min/max box of profile positions is **not** a coverage footprint, and is no
+longer presented as one. `coverage.region` separates:
+
+- `configured_search_region` — the area the archive was extracted for
+  (60–65 °E, 15–20 °N), parsed from the recorded ERDDAP URL, so it is
+  provenance-derived. Being inside it means data was *requested* here, not that
+  any exists here.
+- `observed_sample_bounds` — the bounding box of actual profile positions,
+  carrying a `note` that locations inside it are not covered unless a profile
+  was sampled there.
+- `sample_locations` / `sampled_location_count` — the discrete positions
+  themselves (11 for the full cached subset).
+
+`spatial_sampling_is_pointwise` is emitted whenever data matches, and a request
+reaching outside the extraction box gives `outside_configured_search_region`,
+which says explicitly that nothing was ever retrieved there so its emptiness
+carries no information about the ocean. The old `partial_region_coverage` code,
+which implied the min/max box was "covered", was removed.
+
+## 5b. Manual query, editable preview and Run (Verified)
+
+**One draft is the source of truth.** `DraftForm` holds every control's value;
+`formToPlan` converts it to a `QueryPlanRequest`. Numeric and identifier fields
+are held as **strings** so a box can be cleared and retyped without the form
+substituting a default mid-edit; an incomplete form yields field-associated
+issues and **no plan**, so nothing half-typed is sent. Only parse-level problems
+are detected locally — every semantic and scientific judgement comes from the
+backend validator, so there is one authority and no duplicated rules. Malformed
+float ids are deliberately passed through for the backend to reject.
+
+**Date semantics are explicit and shown in the UI.** A date-only start becomes
+`T00:00:00.000Z`; a date-only end becomes `T23:59:59.999Z`, so "through
+10 January" includes all of 10 January rather than only its first instant. Both
+ends are inclusive, in UTC.
+
+**Validation is debounced and revision-tagged.** Edits bump `revision`; the
+in-flight request is aborted via `AbortSignal` and the reducer additionally
+drops any reply whose revision is no longer current, so a slow response can
+never overwrite a newer one. Debounce is 400 ms.
+
+**Four states are kept apart** (`querySession.ts`): current draft, latest
+validation for that draft, last execution, and displayed results. Editing
+invalidates the previous validation by construction — `currentValidation` only
+returns a result whose revision still matches.
+
+**Execution gating.** `isExecutable()` was inspected rather than trusted: it
+correctly admits only `valid` and `valid_partial_coverage`, and was hardened to
+also require an empty `errors` list and a non-null `normalized_plan`. It remains
+**necessary but not sufficient**, because it cannot tell *which* draft a result
+described; `canExecute()` adds revision equality, a complete form, and a
+not-already-running guard. `invalid` and `unsupported` never execute; partial
+coverage executes with its limitations displayed.
+
+**Results never get relabelled.** Displayed results carry the plan the server
+executed, so after an edit they still describe themselves by what produced them
+while a banner states they came from a previous query.
+
+### `POST /api/plan/execute` (Verified)
+
+Revalidates the submitted plan server-side — a client cannot execute one by
+claiming it was already approved — then applies it with the *same*
+`apply_filters` helper the validator counts with, so preview counts and returned
+records cannot drift. Returns the executed plan, the full validation, the
+dataset identity and the results.
+
+- `invalid` → 422, `executed: false`. `unsupported` → 200 with a
+  `refusal`. `valid_no_data` executes and returns an explicitly empty result.
+- Region, time, float/profile ids, depth and requested variables change the
+  **actual returned records**, not only counts: a 0–50 m plan returns 378 of
+  3,382 levels with a maximum depth of 49.90 m, and dropping `psal` removes the
+  salinity fields from the records entirely.
+- Temperature-only levels survive: in a 0–50 m temp+psal run, 282 of 378 levels
+  carry temperature with `psal: null` plus `psal_status` and
+  `psal_exclusion_reason`.
+- **Exact-depth values are never disguised as observations.** They are returned
+  in a separate `derived` collection, each `derived: true` with its method,
+  bracketing levels and gap, computed by the production
+  `match_value_at_depth`, so no-extrapolation and the 20 m gap rule apply.
+  Every entry in `observations` has `derived: false`. The chart draws derived
+  values as open diamonds with an explanatory caption.
+- An unavailable WOA comparison does not block anything: the comparison panel
+  reports it and the profile charts, map and evidence panel still work.
 
 `GET /api/plan/capabilities` returns the registry, enums, error/warning code
 dictionaries and the live dataset extent, so the frontend need not hardcode a
@@ -265,18 +374,29 @@ submodule is not checked out.
   milestone; typed API response models are deferred to the next one.
 - Only the shallowest matchable reference depth populates the legacy scalar
   response fields; the full set is in `matches[]`.
-- No natural-language layer and no LLM provider integration. The plan validator
-  exists but **nothing produces plans yet**: the Explorer UI is not wired to it,
-  so `planContract.ts` is currently unused by any component.
-- The plan validator does not execute plans. There is no `/api/plan/execute`;
-  a `valid` outcome means the request could be run, not that it has been.
-- `partial_region_coverage` fires whenever the requested box is larger than the
-  observed bounding box. Because the cached subset spans only 61.26–64.45 °E,
-  most realistic region requests are reported as partial. This is accurate, not
-  a defect, but it means `valid` is reached only by requests inside the
-  dataset's own extent.
+- No natural-language layer and no LLM provider integration. Plans are produced
+  only by the manual query controls.
+- **Browser verification was not performed** — no browser automation was
+  available in this session. The interaction logic was verified instead by 35
+  `node --test` unit tests over the real reducer and converter, plus an
+  end-to-end script driving the real `validatePlan`/`executePlan` clients
+  against a live uvicorn server. Visual rendering has not been confirmed by a
+  human or a headless browser.
+- `outside_configured_search_region` fires whenever the requested box reaches
+  beyond 60–65 °E / 15–20 °N. Most realistic region requests are therefore
+  reported as partial coverage. This is accurate, not a defect; `valid` is
+  reached by requests inside the dataset's own extent.
+- Execution returns at most 20,000 levels and reports `result_truncated` beyond
+  that. The cached subset (3,382) is far below the cap, so truncation has not
+  been exercised against real data.
 - The `requested` echo is JSON-safe, so a NaN submitted in the body is echoed
   back as `null` rather than byte-identically.
+- `frontend/tsconfig.json` gained `allowImportingTsExtensions: true` so the
+  same `.ts` imports resolve under both Turbopack and Node's test runner. Both
+  `npm run build` and `npx tsc --noEmit` were re-verified after the change.
+- Lint debt is now **6** pre-existing `@typescript-eslint/no-explicit-any`
+  errors in `Map.tsx` (4, untouched) and `ProfileChart.tsx` (2, Plotly casts),
+  down from 15. No new lint errors were introduced.
 
 ---
 
@@ -286,10 +406,14 @@ submodule is not checked out.
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline test suite — 227 passed (was 127 before the plan validator;
-# 89 plan-validation tests + 11 contract-alignment tests were added, and no
-# existing test changed or regressed)
+# Full offline backend suite — 265 passed (127 -> 227 with the validator,
+# 227 -> 265 with execution and the revised semantics; no existing test
+# changed or regressed at any step)
 venv/Scripts/python.exe -m pytest
+
+# Frontend interaction tests — 35 passed. Uses Node's built-in runner and
+# native TypeScript stripping; no test framework was added to the project.
+cd frontend && npm test
 
 # Bounded WOA cache build — 6 cells attempted, 6 failed (NCEI 503 outage)
 venv/Scripts/python.exe scripts/data_feasibility/build_woa_cache.py --variables temp
@@ -298,7 +422,7 @@ venv/Scripts/python.exe scripts/data_feasibility/build_woa_cache.py --variables 
 cd frontend && npx tsc --noEmit
 cd frontend && npm run build
 
-# Frontend lint — exit 1, 15 pre-existing `any` errors, none newly introduced
+# Frontend lint — exit 1, 6 pre-existing `any` errors (was 15); none new
 cd frontend && npm run lint
 
 # Live server check (offline mode) — all endpoints correct, no NaN tokens.
@@ -320,23 +444,21 @@ target flow remains:
 > question + manual context → **typed plan** → backend validation → existing
 > deterministic operations → structured results
 
-**Next step: connect the explorer's manual filters and an editable query
-preview to the validator.** Concretely:
+The manual query controls, editable preview and Run are **done** (§5b).
 
-1. Hold one `QueryPlanRequest` object in `Explorer.tsx` as the single source of
-   truth, typed from `planContract.ts`.
-2. Render manual controls (dates, region, depth, variables, QC policy, float
-   selection) that edit *that same object* — not a parallel filter state.
-3. On every edit, call `validatePlan()` and render `errors`, `warnings`,
-   `coverage` and `matching` as the editable understanding preview. Manual
-   edits must re-trigger validation, never bypass it.
-4. Gate execution on `isExecutable()`; show `unsupported` and `valid_no_data`
-   as explicit states rather than empty charts.
+**Next step: natural-language input producing the same draft plan, through a
+configurable backend provider.** Concretely:
 
-**Only after that**, add natural-language planning: a backend endpoint that
-turns a question into the same `QueryPlanRequest`, which is then validated by
-the existing validator before anything runs. The LLM interprets and explains;
-it never computes a number and never bypasses validation.
+1. Add a backend endpoint that turns a question plus the current manual context
+   into a `QueryPlanRequest` — the *same* type the controls already produce.
+2. Feed that plan into the existing draft as an ordinary edit, so it bumps the
+   revision and flows through `validatePlan` like any manual change. The model
+   proposes a draft; it never bypasses validation and never executes anything.
+3. Show the proposed plan in the existing preview so the user can edit it
+   before running. Editing it must behave exactly as editing a manual field.
+4. Keep the provider behind backend configuration (env-driven, swappable). The
+   model interprets the question and explains returned results; it never
+   computes a number.
 
 - **The LLM provider is configurable and is not being changed.** All provider
   calls go through the backend; API keys must never appear in frontend code.

@@ -33,6 +33,7 @@ from floatchat_core.plan import (
     capability_report,
     pydantic_errors_to_issues,
 )
+from floatchat_core.plan_execution import execute_plan
 from floatchat_core.plan_validation import (
     DatasetIndex,
     status_for_outcome,
@@ -76,20 +77,24 @@ def build_plan_router(index_provider: Callable[[], DatasetIndex]) -> APIRouter:
         report["dataset"] = index_provider().describe()
         return JSONResponse(status_code=200, content=json_safe(report))
 
-    @router.post("/api/plan/validate")
-    async def plan_validate(request: Request):
-        """Validate a query plan. Never executes it and never calls a model."""
+    async def _parse_plan(request: Request):
+        """``(plan, body, error)`` where ``error`` is ``(status, payload)``.
+
+        The payload is a plain dict so each route can shape it - the execute
+        route adds ``executed: false`` so a caller can always read that field,
+        including when the body never parsed.
+        """
         try:
             body = await request.json()
         except Exception:
-            return JSONResponse(status_code=400, content=_envelope(
+            return None, None, (400, _envelope(
                 Outcome.INVALID.value, None,
                 [{"code": "malformed_json", "field": None,
                   "message": "The request body is not valid JSON."}],
             ))
 
         if not isinstance(body, dict):
-            return JSONResponse(status_code=400, content=_envelope(
+            return None, body, (400, _envelope(
                 Outcome.INVALID.value, json_safe(body),
                 [{"code": "body_not_object", "field": None,
                   "message": "The request body must be a JSON object."}],
@@ -100,14 +105,49 @@ def build_plan_router(index_provider: Callable[[], DatasetIndex]) -> APIRouter:
         except ValidationError as exc:
             issues = [issue.model_dump() for issue in
                       pydantic_errors_to_issues(exc)]
-            return JSONResponse(status_code=422, content=_envelope(
+            return None, body, (422, _envelope(
                 Outcome.INVALID.value, json_safe(body), issues,
                 dataset=json_safe(index_provider().describe()),
             ))
+
+        return plan, body, None
+
+    @router.post("/api/plan/validate")
+    async def plan_validate(request: Request):
+        """Validate a query plan. Never executes it and never calls a model."""
+        plan, body, error = await _parse_plan(request)
+        if error is not None:
+            status, payload = error
+            return JSONResponse(status_code=status, content=payload)
 
         result = validate_plan(plan, index_provider())
         result["requested"] = json_safe(body)
         return JSONResponse(status_code=status_for_outcome(result["outcome"]),
                             content=result)
+
+    @router.post("/api/plan/execute")
+    async def plan_execute(request: Request):
+        """Revalidate a plan and apply it to the loaded observations.
+
+        The plan is validated again server-side; a client cannot execute one by
+        claiming it was already approved. ``invalid`` plans are 422 and
+        ``unsupported`` plans are refused with ``executed: false``. Selection
+        reuses the same helper the validator counts with, so the records
+        returned match the preview.
+        """
+        plan, body, error = await _parse_plan(request)
+        if error is not None:
+            status, payload = error
+            payload = {**payload, "executed": False, "executed_at": None,
+                       "results": None, "plan": None,
+                       "refusal": {"code": "not_executable",
+                                   "message": "The plan did not parse, so it "
+                                              "was not executed."}}
+            return JSONResponse(status_code=status, content=json_safe(payload))
+
+        result = execute_plan(plan, index_provider())
+        result["requested"] = json_safe(body)
+        status = 422 if result["outcome"] == Outcome.INVALID.value else 200
+        return JSONResponse(status_code=status, content=result)
 
     return router

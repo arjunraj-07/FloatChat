@@ -41,11 +41,17 @@ cd api
 Explorer endpoints: `/api/health`, `/api/coverage`, `/api/floats`,
 `/api/profiles/{profile_id}`, `/api/woa_match/{profile_id}`.
 
-Query-plan endpoints: `GET /api/plan/capabilities` and
-`POST /api/plan/validate`. The validator checks a structured exploration
+Query-plan endpoints: `GET /api/plan/capabilities`, `POST /api/plan/validate`
+and `POST /api/plan/execute`. The validator checks a structured exploration
 request against the loaded data; it does not execute it, fetch anything or
 call a model. Outcomes are `valid`, `valid_partial_coverage`, `valid_no_data`,
-`unsupported` (200) and `invalid` (422); a non-JSON body is 400. See
+`unsupported` (200) and `invalid` (422); a non-JSON body is 400.
+
+`POST /api/plan/execute` takes the same body, revalidates it server-side and
+applies it, returning the matching profiles, the selected observations and —
+for exact-depth plans — a separate `derived` collection of interpolated values
+labelled as computed rather than measured. `invalid` plans are refused with
+422 and `unsupported` plans with `executed: false`. See
 [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) §5a for the full contract and
 `frontend/src/lib/planContract.ts` for the TypeScript types.
 
@@ -75,7 +81,14 @@ npm install
 npm run dev        # http://localhost:3000, expects the API on port 8000
 npm run build
 npm run lint
+npm test           # interaction tests, Node's built-in runner, no extra deps
 ```
+
+The explorer is driven by one editable draft query. Every control edits the
+same plan; each edit is revalidated (debounced, with stale replies discarded)
+and **Run** only applies the exact draft that was last validated. Results stay
+labelled by the plan that produced them, so an edit never silently relabels an
+earlier query's charts.
 
 ## Tests
 

@@ -22,6 +22,7 @@ supply is reported separately under ``coverage``.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -49,12 +50,16 @@ from .woa import DEFAULT_MAX_GAP_M, json_safe, match_value_at_depth, read_cached
 #: three Argo modes, so the absence of one is not a shortfall against what was
 #: asked for; if every requested mode were absent nothing would match and the
 #: outcome would be ``valid_no_data`` on its own.
+#: ``spatial_sampling_is_pointwise``, ``sparse_vertical_sampling`` and
+#: ``default_policy_applied`` are excluded: they are always-true descriptions
+#: of how Argo data and this schema work, not shortfalls against the request.
 PARTIAL_WARNING_CODES = frozenset({
     "partial_time_coverage",
     "partial_depth_coverage",
-    "partial_region_coverage",
+    "outside_configured_search_region",
     "variable_unavailable",
     "variable_partial",
+    "qc_metadata_incomplete",
     "interpolation_not_possible",
     "reference_data_uncached",
 })
@@ -99,6 +104,22 @@ class DatasetIndex:
         for variable in ("pres", "temp", "psal"):
             flags |= self.stored_qc_flags(variable)
         return flags
+
+    @property
+    def configured_search_region(self) -> Optional[dict]:
+        """The lon/lat box the archive was extracted for, from provenance."""
+        return parse_search_region(self.identity.get("source_url"))
+
+    def qc_metadata_gaps(self, variable: str) -> int:
+        """Retained levels whose QC flag for ``variable`` was not kept.
+
+        Ingestion clears the salinity flag on levels it excludes, so for those
+        levels the stored tables cannot evidence QC compliance either way.
+        """
+        column = f"{variable}_qc"
+        if column not in self.observations.columns:
+            return int(len(self.observations))
+        return int(self.observations[column].isna().sum())
 
     def describe(self) -> dict:
         obs = self.observations
@@ -194,15 +215,20 @@ def check_selection(plan: QueryPlanRequest, index: DatasetIndex) -> list[Issue]:
         if platform not in known_platforms:
             issues.append(_issue(
                 "unknown_platform",
-                f"Float '{platform}' is not present in the validated dataset.",
+                f"Float '{platform}' could not be resolved in the loaded "
+                "dataset. It may exist in the wider Argo archive; it is not in "
+                "the cached subset this instance validates against, so the "
+                "plan cannot be executed as written.",
                 f"selection.platforms.{position}",
             ))
     for position, profile_id in enumerate(plan.selection.profile_ids):
         if profile_id not in known_profiles:
             issues.append(_issue(
                 "unknown_profile",
-                f"Profile '{profile_id}' is not present in the validated "
-                "dataset.",
+                f"Profile '{profile_id}' could not be resolved in the loaded "
+                "dataset. It may exist in the wider Argo archive; it is not in "
+                "the cached subset this instance validates against, so the "
+                "plan cannot be executed as written.",
                 f"selection.profile_ids.{position}",
             ))
 
@@ -222,6 +248,98 @@ def check_selection(plan: QueryPlanRequest, index: DatasetIndex) -> list[Issue]:
                     f"{sorted(requested_platforms)}.",
                     f"selection.profile_ids.{position}",
                 ))
+    return issues
+
+
+def describe_effective_policy(plan: QueryPlanRequest,
+                              index: DatasetIndex) -> dict:
+    """The QC/data-mode policy actually applied, and where it came from.
+
+    A caller that omits ``qc_policy`` still gets a policy applied. Reporting it
+    as ``source: "default"`` means the preview can show the effective settings
+    instead of leaving the user to guess what an omitted section implied.
+    """
+    provided = "qc_policy" in plan.model_fields_set
+    sub_provided = plan.qc_policy.model_fields_set
+    requested_modes = [m.value for m in dict.fromkeys(plan.qc_policy.data_modes)]
+    present = sorted(index.stored_data_modes)
+    return {
+        "source": "request" if provided else "default",
+        "accepted_qc_flags": {
+            "value": sorted(set(plan.qc_policy.accepted_qc_flags)),
+            "source": "request" if provided and "accepted_qc_flags" in sub_provided
+                      else "default",
+        },
+        "data_modes": {
+            "value": requested_modes,
+            "source": "request" if provided and "data_modes" in sub_provided
+                      else "default",
+            "present_in_dataset": present,
+            "requested_but_absent": [m for m in requested_modes if m not in present],
+        },
+        "note": (
+            "R selects raw values with raw QC; A and D select adjusted values "
+            "with adjusted QC. The processed tables retain only levels whose "
+            "selected flag was accepted at ingestion."
+        ),
+    }
+
+
+def policy_warnings(plan: QueryPlanRequest, index: DatasetIndex,
+                    effective: dict) -> list[Issue]:
+    """Limitations in applying the effective policy to the stored data.
+
+    Two distinct situations are kept apart:
+
+    * A mode the caller **explicitly asked for** that no profile uses is a
+      limitation of this request (``data_mode_absent``).
+    * A mode absent only because the caller accepted the **default** "any mode"
+      policy is not a shortfall against anything asked for; the effective
+      default is reported instead (``default_policy_applied``).
+
+    Separately, levels whose QC flag was not retained cannot evidence
+    compliance, and that is stated rather than assumed
+    (``qc_metadata_incomplete``).
+    """
+    issues: list[Issue] = []
+    absent = effective["data_modes"]["requested_but_absent"]
+    explicit = effective["data_modes"]["source"] == "request"
+
+    if absent and explicit:
+        issues.append(_issue(
+            "data_mode_absent",
+            f"Data mode(s) {absent} were requested explicitly but no profile in "
+            f"the loaded dataset uses them (present: "
+            f"{effective['data_modes']['present_in_dataset']}). The filter is "
+            "applied as written, so those modes contribute nothing.",
+            "qc_policy.data_modes",
+        ))
+    elif effective["source"] == "default":
+        issues.append(_issue(
+            "default_policy_applied",
+            "No qc_policy was supplied, so the default was applied: QC flags "
+            f"{effective['accepted_qc_flags']['value']} and data modes "
+            f"{effective['data_modes']['value']}. Modes actually present in "
+            f"the loaded dataset: {effective['data_modes']['present_in_dataset']}."
+            + (f" Requested-by-default modes not present: {absent}." if absent
+               else ""),
+            "qc_policy",
+        ))
+
+    for variable in dict.fromkeys(plan.variables):
+        gaps = index.qc_metadata_gaps(variable.value)
+        if gaps:
+            issues.append(_issue(
+                "qc_metadata_incomplete",
+                f"{gaps} stored level(s) carry no {variable.value.upper()} QC "
+                "flag, because ingestion cleared it on levels it excluded. For "
+                "those levels the stored tables cannot evidence compliance "
+                f"with QC flags {effective['accepted_qc_flags']['value']} "
+                "either way; they are reported as exclusions rather than "
+                "counted as compliant.",
+                f"qc_policy.accepted_qc_flags.{variable.value}",
+            ))
+
     return issues
 
 
@@ -255,6 +373,50 @@ def apply_filters(plan: QueryPlanRequest, index: DatasetIndex) -> pd.DataFrame:
         mask &= (obs["depth"] >= plan.depth.min_m) & (obs["depth"] <= plan.depth.max_m)
 
     return obs[mask]
+
+
+#: ERDDAP tabledap constraints, e.g. ``longitude>=60``. Parsed from the
+#: recorded source URL so the configured search region is provenance-derived
+#: rather than restated by hand.
+_CONSTRAINT_RE = re.compile(
+    r"(longitude|latitude|pres|time)(>=|<=)(-?\d+(?:\.\d+)?)"
+)
+
+
+def parse_search_region(source_url: Optional[str]) -> Optional[dict]:
+    """The lon/lat box an ERDDAP extraction was requested for.
+
+    Returns ``None`` when the URL carries no usable pair of bounds. This is the
+    *configured* region: the area the download asked about. It is not a claim
+    that observations exist throughout it.
+    """
+    if not source_url:
+        return None
+    found: dict[str, float] = {}
+    for variable, operator, value in _CONSTRAINT_RE.findall(source_url):
+        key = {"longitude": "lon", "latitude": "lat"}.get(variable)
+        if key is None:
+            continue
+        found[f"{key}_{'min' if operator == '>=' else 'max'}"] = float(value)
+    required = ("lon_min", "lon_max", "lat_min", "lat_max")
+    if not all(k in found for k in required):
+        return None
+    return {
+        "west": found["lon_min"], "east": found["lon_max"],
+        "south": found["lat_min"], "north": found["lat_max"],
+        "source": "parsed from the recorded extraction URL",
+    }
+
+
+def _sample_points(matched: pd.DataFrame) -> list:
+    """Distinct profile positions in the matched set, rounded to ~1 m."""
+    if matched.empty:
+        return []
+    positions = (matched[["latitude", "longitude"]]
+                 .round(5).drop_duplicates()
+                 .sort_values(["latitude", "longitude"]))
+    return [{"latitude": float(row.latitude), "longitude": float(row.longitude)}
+            for row in positions.itertuples()]
 
 
 def _vertical_sampling(matched: pd.DataFrame) -> dict:
@@ -385,30 +547,56 @@ def _extent_warnings(plan: QueryPlanRequest, index: DatasetIndex,
         ))
 
     bounds = plan.region.bounds()
+    search_region = index.configured_search_region
+    sample_points = _sample_points(matched)
     region_summary = {
         "requested": bounds,
-        "dataset": {
+        # The area the archive was *extracted* for. Being inside it means the
+        # extraction asked for data here, not that data exists here.
+        "configured_search_region": search_region,
+        # The min/max box of actual profile positions. This is the extent of a
+        # scatter of points, NOT an area that has been surveyed.
+        "observed_sample_bounds": {
             "west": dataset["longitude_min"], "east": dataset["longitude_max"],
             "south": dataset["latitude_min"], "north": dataset["latitude_max"],
+            "note": "Bounding box of discrete profile positions. Locations "
+                    "inside this box are not covered unless a profile was "
+                    "actually sampled there.",
         },
-        "matched": {
+        "matched_sample_bounds": {
             "west": float(matched["longitude"].min()),
             "east": float(matched["longitude"].max()),
             "south": float(matched["latitude"].min()),
             "north": float(matched["latitude"].max()),
         } if len(matched) else None,
+        "sample_locations": sample_points,
+        "sampled_location_count": len(sample_points),
     }
-    if (bounds["west"] < dataset["longitude_min"]
-            or bounds["east"] > dataset["longitude_max"]
-            or bounds["south"] < dataset["latitude_min"]
-            or bounds["north"] > dataset["latitude_max"]):
+
+    if search_region is not None and (
+            bounds["west"] < search_region["west"]
+            or bounds["east"] > search_region["east"]
+            or bounds["south"] < search_region["south"]
+            or bounds["north"] > search_region["north"]):
         warnings.append(_issue(
-            "partial_region_coverage",
-            "The requested region is larger than the area the dataset covers "
-            f"({dataset['longitude_min']:.3f} to {dataset['longitude_max']:.3f} E, "
-            f"{dataset['latitude_min']:.3f} to {dataset['latitude_max']:.3f} N). "
-            "The requested bounds are preserved; observations exist only "
-            "within the covered area, and sparsely within it.",
+            "outside_configured_search_region",
+            "Part of the requested region lies outside the area this archive "
+            f"was extracted for ({search_region['west']:.3f} to "
+            f"{search_region['east']:.3f} E, {search_region['south']:.3f} to "
+            f"{search_region['north']:.3f} N). No data was ever retrieved for "
+            "the area outside it, so its emptiness carries no information "
+            "about the ocean. The requested bounds are preserved.",
+            "region",
+        ))
+
+    if sample_points:
+        warnings.append(_issue(
+            "spatial_sampling_is_pointwise",
+            f"Matching data comes from {len(sample_points)} discrete profile "
+            "position(s), not from an area survey. The region is a search "
+            "filter; unsampled locations inside it are not covered, and the "
+            "bounding box of these points must not be read as a coverage "
+            "footprint.",
             "region",
         ))
 
@@ -498,6 +686,7 @@ def validate_plan(plan: QueryPlanRequest, index: DatasetIndex,
         "warnings": [],
         "matching": None,
         "coverage": None,
+        "effective_policy": None,
         "dataset": index.describe(),
     }
 
@@ -514,15 +703,8 @@ def validate_plan(plan: QueryPlanRequest, index: DatasetIndex,
 
     matched = apply_filters(plan, index)
 
-    for mode in dict.fromkeys(plan.qc_policy.data_modes):
-        if mode.value not in index.stored_data_modes:
-            warnings.append(_issue(
-                "data_mode_absent",
-                f"Data mode '{mode.value}' is supported by the pipeline but no "
-                "profile in the validated dataset uses it "
-                f"(present: {sorted(index.stored_data_modes)}).",
-                "qc_policy.data_modes",
-            ))
+    effective_policy = describe_effective_policy(plan, index)
+    warnings.extend(policy_warnings(plan, index, effective_policy))
 
     extent_warnings, coverage = _extent_warnings(plan, index, matched)
     warnings.extend(extent_warnings)
@@ -604,6 +786,7 @@ def validate_plan(plan: QueryPlanRequest, index: DatasetIndex,
     response["errors"] = []
     response["warnings"] = [w.model_dump() for w in warnings]
     response["coverage"] = coverage
+    response["effective_policy"] = effective_policy
     response["matching"] = {
         "observations": int(len(matched)),
         "profiles": int(matched["profile_id"].nunique()) if len(matched) else 0,
