@@ -19,7 +19,10 @@ Conventions fixed here and relied on by the frontend contract:
   dataset does not span the antimeridian. See :data:`ERROR_CODES`.
 * Depth is metres, positive down, consistent with the observation tables.
 * Times are ISO-8601. A timezone-aware value is converted to UTC; a naive value
-  is interpreted as UTC, matching the stored observation timestamps.
+  is interpreted as UTC, matching the stored observation timestamps. A
+  date-only end means the last instant of that UTC day. Timestamps proposed by
+  the natural-language planner must carry an explicit offset instead (see
+  :mod:`floatchat_core.nl_planner`).
 * The date range and the depth range are **inclusive** at both ends.
 
 Nothing here consults PROJECT_CONTEXT.md. Runtime availability is decided by
@@ -33,7 +36,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 #: Version of the plan request/response contract. The frontend pins this.
 PLAN_SCHEMA_VERSION = "1.0"
@@ -357,9 +360,21 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
+_DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
 class TimeRange(StrictModel):
     start: datetime
     end: datetime
+
+    @field_validator("end", mode="before")
+    @classmethod
+    def _date_only_end_is_end_of_day(cls, value):
+        """A date-only end covers that whole UTC day, so "through 30 June"
+        includes 30 June rather than stopping at its first instant."""
+        if isinstance(value, str) and _DATE_ONLY.match(value.strip()):
+            return f"{value.strip()}T23:59:59.999999+00:00"
+        return value
 
     @model_validator(mode="after")
     def _check_order(self):

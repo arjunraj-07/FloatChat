@@ -497,13 +497,13 @@ environment. The key is never written to a file.
     reason. The model named the request instead of patching `qc_policy`, and
     only the patch path produces the policy-specific reason, even though the
     prompt tells the model to name such requests.
-- **Date normalization, recorded not fixed**
-  (`tests/test_date_normalization_known_issues.py`,
+- **Date normalization, found here and fixed in §5e**
+  (`tests/test_date_normalization.py`,
   `frontend/tests/dateNormalization.test.ts`). A date-only end
-  (`2019-06-30`) parses to 00:00 that day in the backend, although the planner
-  prompt promises end of day. Accepting a proposal with naive timestamps
-  re-reads them in browser-local time, while the backend reads them as UTC: in
-  UTC+5:30, June 2019 shifts to `2019-05-31T18:30Z`..`2019-06-30T18:29:59Z`.
+  (`2019-06-30`) parsed to 00:00 that day in the backend, although the planner
+  prompt promised end of day. Accepting a proposal with naive timestamps
+  re-read them in browser-local time, while the backend read them as UTC: in
+  UTC+5:30, June 2019 shifted to `2019-05-31T18:30Z`..`2019-06-30T18:29:59Z`.
 
 Fixes made while testing:
 
@@ -564,9 +564,8 @@ the frontend.
   Scientific adds units, TEMP/PSAL naming, QC and raw/adjusted fields,
   provenance, validator codes and interpolation details. Explanations are a
   static glossary; no model is called.
-- Backend timestamps are displayed as UTC (a naive timestamp means UTC). The
-  separate accept-proposal issue recorded in
-  `frontend/tests/dateNormalization.test.ts` is unchanged.
+- Backend timestamps are displayed as UTC (a naive stored timestamp means
+  UTC). The accept-proposal date issue is fixed in §5e.
 
 Verification: `frontend/scripts/verify-ui.mjs` drives headless Chrome at
 1366x768 over the DevTools protocol against the running app. 26/26 checks
@@ -577,6 +576,66 @@ profile with an undistorted temperature axis, scientific naming, two-profile
 comparison for both variables, and results kept (flagged stale) after a draft
 edit. The screenshots were inspected; they exposed an empty-panel axis bug and
 an unusable small-screen header, both fixed before the final run.
+
+## 5e. Explorer correctness and usability patch (Verified)
+
+**Dates and time zones.** The timestamp was traced from the model reply
+through `draft_plan` (`plan_patch.time`), `proposed_plan`, `applyPlanToForm`
+and `toDateField`, the `DraftForm` text, and `formToPlan` /
+`startInstant` / `endInstant` into the request.
+
+- Backend: a date-only end now means the last instant of that UTC day
+  (`T23:59:59.999999Z`), as the planner prompt and the date fields already
+  promised. Plans a client writes itself keep the documented rule that a
+  naive timestamp means UTC.
+- Planner: a model-proposed timestamp must carry an explicit offset; a date
+  alone is accepted as a UTC day. A timestamp without one is rejected with
+  `timestamp_timezone_missing` (one error per affected edge) and a message
+  telling the user to ask again or set the dates in the filters. Nothing is
+  applied and the draft is unchanged. The prompt states the rule, and every
+  proposed time is returned in explicit UTC.
+- Frontend: date fields are parsed without the browser's time zone
+  (`parseTimeText`). Date-only text stays `YYYY-MM-DD` with inclusive UTC days;
+  explicit timestamps keep their instant; an instant on a UTC day boundary is
+  shown as a date and any other instant in UTC. A timestamp without a zone
+  stays in the field with the message "... has no time zone ...", and the
+  draft cannot be validated or run until it is corrected.
+- Tests: the backend strict xfail and the frontend `todo` are now passing
+  regression tests. Frontend cases run under UTC, Asia/Kolkata and
+  America/New_York, with a guard proving the zone change takes effect. They
+  cover a +05:30 proposal whose end falls on the next local day, an instant
+  that is not on a day boundary, the Gemini naive reply and the session never
+  making it runnable. Backend cases cover offset conversion, a one-day
+  date-only range that now finds the 2024-01-09 profiles, and the rejection
+  through the real route. All use fixtures; no provider was called.
+
+**Missing data.** Messages are built from the stored exclusion statuses:
+`missing_value` "had no value in the source file", `qc_rejected` "failed
+quality control", `qc_malformed` "had an unreadable quality flag". Excluded
+levels without a stored reason (temperature has no status column) are
+"excluded for a reason the cached data does not record". A missing value is
+never called a QC failure; in the cached data 2,658 salinity levels are
+`missing_value` and 34 are `qc_rejected`. The same wording is used in the
+availability chips, empty chart panels, compare notes and details panel, and
+in the validator's `variable_partial` message, which printed a raw dictionary.
+
+**Student view.** Units stay visible: Temperature (°C), Depth (m), and
+"Salinity (PSS-78, no unit)" rather than a bare axis. Chips read "measured at
+N depths, no usable value at M", so partial coverage is not hidden. Derived
+values keep their open diamonds and "not measurements" note.
+
+**Compare.** The two selectors are stacked one per row with compact labels,
+"Float 2902201 · cycle 287 · 2024-01-05 12:13 UTC" (descending
+profiles are marked). The full identity (profile id, direction, time and
+position) is the control's title and accessible name. The legend and notes
+use the same labels.
+
+Verification: backend 383 passed (was 374 + 1 xfail); frontend 98 passed (was
+82 + 1 todo); tsc, lint and build exit 0. Headless Chrome with the browser
+zone set to Asia/Kolkata passed 33/33 checks with no page errors. They
+include both selected compare labels measured unclipped at 1366 px, an offset
+end date read as its UTC day, and a time without a zone reported rather than
+guessed.
 
 ## 6. Known limitations
 
@@ -594,11 +653,6 @@ an unusable small-screen header, both fixed before the final run.
   in this milestone. Nothing consumes it yet.
 - Historical SST baseline retrieval remains blocked; marine-heatwave detection
   is not available.
-- Browser verification was **not** performed — no browser tooling was available
-  in this session. Build, type-check and API behaviour were verified instead.
-- 15 pre-existing `@typescript-eslint/no-explicit-any` lint errors in
-  `Explorer.tsx`, `Map.tsx`, `ProfileChart.tsx`. None were introduced by this
-  milestone; typed API response models are deferred to the next one.
 - Only the shallowest matchable reference depth populates the legacy scalar
   response fields; the full set is in `matches[]`.
 - **Gemini generation is smoke-tested, not evaluated.** All five scenarios
@@ -607,8 +661,15 @@ an unusable small-screen header, both fixed before the final run.
   replies do not prove structured output is enforced. Unsupported-analysis and
   QC-policy requests currently surface only a generic reason when the model
   names them rather than patching the plan.
-- **Two date-normalization issues are recorded, not fixed**: a strict xfail
-  (backend) and a `todo` test (frontend); see §5c.
+- **Date normalization is fixed** (§5e); both recorded issues are now
+  passing regression tests. Still open from the smoke test: the generic
+  reasons for marine-heatwave and QC=4 requests the model names instead of
+  patching. The Next.js development badge can overlap a corner in dev mode.
+- **Observed once, not reproduced (2026-09-15):** the backend process exited
+  without a traceback right after netCDF printed OPeNDAP parse errors on an
+  NCEI "503 Service Unavailable" page during a WOA network read. A rerun of
+  the same browser checks did not repeat it. Remote WOA reads may be able to
+  terminate the API process; `FLOATCHAT_WOA_ALLOW_NETWORK=0` avoids them.
 - **No model evaluation has been performed.** Every natural-language test uses
   a fixture reply, including `tests/test_nl_examples.py`. No accuracy claim can
   be drawn from them; a live evaluation would be a separate exercise.
@@ -655,13 +716,13 @@ an unusable small-screen header, both fixed before the final run.
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline backend suite — 374 passed + 1 strict xfail (127 -> 227 validator,
+# Full offline backend suite — 383 passed (127 -> 227 validator,
 # 227 -> 265 execution, 265 -> 361 natural-language drafting,
 # 361 -> 370 policy-request handling and scrubbed provider errors,
-# 370 -> 374 + 1 xfail date-normalization cases; nothing regressed)
+# 370 -> 374 + 1 xfail date-normalization cases, 383 once fixed; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 82 passed + 1 todo (known issue). Uses Node's built-in runner and
+# Frontend interaction tests — 98 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -688,7 +749,8 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (26/26):
+# Headless-Chrome UI checks against the running app (33/33; browser zone
+# Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 cd frontend && npm run lint
 

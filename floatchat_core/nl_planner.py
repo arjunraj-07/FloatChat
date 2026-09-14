@@ -194,7 +194,10 @@ def build_system_prompt(index) -> str:
             "unsupported_requests": "array of strings naming what is unsupported",
             "assumptions": "array of short strings; state any choice you made",
             "plan_patch": {
-                "time": {"start": "ISO-8601", "end": "ISO-8601"},
+                "time": {"start": "YYYY-MM-DD, or ISO-8601 with an explicit "
+                                  "offset such as Z",
+                         "end": "YYYY-MM-DD, or ISO-8601 with an explicit "
+                                "offset such as Z"},
                 "region": "either {kind:'named',name:...} or "
                           "{kind:'bbox',west,east,south,north}",
                 "depth": "either {mode:'range',min_m,max_m} or "
@@ -219,8 +222,10 @@ def build_system_prompt(index) -> str:
             "coordinates": "decimal degrees; west<east, south<north; an "
                            "antimeridian-crossing box is not supported",
             "depth": "metres, positive down",
-            "time": "ISO-8601; ranges inclusive; a date-only end means the end "
-                    "of that day",
+            "time": "UTC. Give a date only (YYYY-MM-DD) or a timestamp with "
+                    "an explicit offset such as 2019-06-30T23:59:59Z; a "
+                    "timestamp without an offset is rejected. Ranges "
+                    "inclusive; a date-only end means the end of that day",
             "variables": "temp is in-situ temperature (Argo TEMP); psal is "
                          "practical salinity (Argo PSAL)",
         },
@@ -398,6 +403,42 @@ def _declared_unsupported(declared: Any, already: list) -> list:
     return surfaced
 
 
+def _timestamps_without_timezone(patch: dict) -> list:
+    """Model-proposed times that name no time zone.
+
+    A naive timestamp is ambiguous: the backend would read it as UTC and a
+    browser as local time, so it is reported rather than resolved either way.
+    A date alone is not ambiguous, because dates are UTC days by convention.
+    Values that do not parse are left to the schema, which reports them.
+    """
+    time_patch = patch.get("time")
+    if not isinstance(time_patch, dict):
+        return []
+    issues = []
+    for edge in ("start", "end"):
+        value = time_patch.get(edge)
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if "T" not in text.upper() and ":" not in text:
+            continue
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            issues.append({
+                "code": "timestamp_timezone_missing",
+                "field": f"time.{edge}",
+                "message": (
+                    f"The proposed {edge} time {text[:40]!r} has no time zone, "
+                    "so it could mean different instants. It was not applied. "
+                    "Ask again, or set the dates in the filters (dates are UTC "
+                    "days)."),
+            })
+    return issues
+
+
 def _envelope(outcome: DraftOutcome, **extra) -> dict:
     payload = {
         "schema_version": PLAN_SCHEMA_VERSION,
@@ -517,6 +558,21 @@ def draft_plan(question: str, context: Optional[dict], index,
     patch = raw.get("plan_patch")
     if not isinstance(patch, dict):
         patch = {}
+
+    time_issues = _timestamps_without_timezone(patch)
+    if time_issues:
+        # Never guess which zone was meant. Nothing is applied, and the
+        # caller's draft stays as it was.
+        return _envelope(
+            DraftOutcome.PROVIDER_UNAVAILABLE,
+            provider_message=(
+                "The service proposed a time without a time zone, so the "
+                "draft was not applied. Ask again, or set the dates in the "
+                "filters."),
+            errors=time_issues,
+            assumptions=assumptions,
+            **common)
+
     merged, touched, ignored = apply_patch(context, patch)
 
     try:
@@ -569,10 +625,15 @@ def draft_plan(question: str, context: Optional[dict], index,
     has_changes = any(change.origin != "retained" for change in changes)
     offer_plan = outcome is DraftOutcome.PROPOSED_DRAFT or has_changes
 
+    proposed = plan.model_dump(mode="json", exclude_none=True)
+    # Every proposed time carries an explicit UTC offset, so no client has to
+    # guess which zone a value meant.
+    proposed["time"] = {"start": normalized["time"]["start"],
+                        "end": normalized["time"]["end"]}
+
     return _envelope(
         outcome,
-        proposed_plan=(plan.model_dump(mode="json", exclude_none=True)
-                       if offer_plan else None),
+        proposed_plan=proposed if offer_plan else None,
         normalized_plan=normalized if offer_plan else None,
         changes=[change.as_dict() for change in changes],
         retained_fields=retained_fields(previous_normalized, normalized),

@@ -467,6 +467,27 @@ def _variable_coverage(matched: pd.DataFrame, variable: Variable) -> dict:
     return summary
 
 
+_EXCLUSION_WORDS = {
+    "missing_value": "no value in the source file",
+    "qc_rejected": "QC flag not accepted",
+    "qc_malformed": "unreadable QC flag",
+}
+
+
+def _describe_exclusions(counts: dict, excluded: int) -> str:
+    """Exclusion counts by stored reason, without assigning unrecorded ones.
+
+    A level with no value in the source file is not a QC failure, and levels
+    for which the stored tables keep no reason are reported as such.
+    """
+    parts = [f"{count} {_EXCLUSION_WORDS.get(code, code.replace('_', ' '))}"
+             for code, count in sorted(counts.items()) if count]
+    unexplained = excluded - sum(counts.values())
+    if unexplained > 0:
+        parts.append(f"{unexplained} with no reason recorded in the stored data")
+    return "; ".join(parts)
+
+
 def _at_depth_matchability(plan: QueryPlanRequest, matched: pd.DataFrame,
                            variable: Variable, max_gap_m: float) -> dict:
     """Whether each profile can supply the exact requested depth.
@@ -751,7 +772,9 @@ def validate_plan(plan: QueryPlanRequest, index: DatasetIndex,
                     f"{variable.value.upper()} is valid on "
                     f"{summary['valid_observations']} of {len(matched)} "
                     f"matching level(s); {summary['excluded_observations']} "
-                    f"were excluded ({summary['exclusions']}). Levels without "
+                    "were excluded ("
+                    f"{_describe_exclusions(summary['exclusions'], summary['excluded_observations'])}"
+                    "). Levels without "
                     f"{variable.value.upper()} retain their other variables.",
                     f"variables.{variable.value}",
                 ))
