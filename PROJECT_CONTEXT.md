@@ -686,6 +686,64 @@ the pure-logic test for an empty result, not in the browser.
 This is a time filter over one 2D regional result. It is not the 4D (globe,
 depth and time) explorer.
 
+## 5g. Four-section navigation (Verified)
+
+The explorer is organised into **Map Explorer**, **AI Assistant**, **Compare**
+and **About Data**. They are chosen from a top navbar (a menu button below the
+md breakpoint) that also holds a compact Student/Scientific switch. One
+workspace is shown at a time. The colour palette is unchanged until a visual
+reference is provided.
+
+- **Shared state** stays in `Explorer.tsx`, above the sections: the query
+  session, the question and proposal, the selected profile, the time position,
+  Compare choices and the view preference. Map Explorer stays mounted while
+  hidden, so the map keeps the user's panning: it fits once per result and
+  never re-measures while hidden. The other sections render when opened.
+  Navigating never calls the model, validates or runs a query (checked by
+  request counts), and leaving Map Explorer pauses playback at the current
+  time.
+- **Map Explorer** (the default section) has a toolbar with Filters, a
+  one-line draft summary and Show results (the former Run). The filter drawer
+  starts closed and Escape closes it. The map carries the time navigator
+  beneath it once a result exists, beside the labelled selected-profile panel
+  with its chart; the expandable scientific details sit below the profile.
+  Before a result it shows the labelled dataset overview, a short note and Use
+  cached data.
+- **AI Assistant** states what the assistant does: it proposes query
+  settings, and does not answer questions or calculate values. It holds the
+  question and example chips, and a three-step journey (Ask a question →
+  Review the proposed query → Show results on the map) with one primary
+  action per stage. Accepting reuses the existing session action, and a
+  successful Show results opens Map Explorer with that result. The pending,
+  clarification, provider-error, unsupported and stale states are kept. The
+  stage is derived from the session in `navigation.ts`, using a new
+  `acceptedRevision` field recorded by `draft:accept`.
+- **Compare** has two selectors, the variable switch, a large chart and
+  availability notes, over the current result and time view. An active time
+  restriction is stated, with View all returned times: that moves to the
+  latest timestamp without changing the open profile or rerunning the query.
+  A remembered choice outside the time view is shown as temporarily
+  unavailable and never substituted; with nothing to draw, a short
+  explanation replaces empty axes. Before a result there is a short note and
+  Open Map Explorer.
+- **About Data** covers the loaded coverage and observation dates, the source
+  with its processing date kept separate, the kinds of values (measurement,
+  derived, climatology), limitations (shown open), missing-data reasons with
+  the stored counts, quality control, variables and units, capabilities and
+  the glossary.
+
+Verification: frontend 131 tests passed (11 new, covering sections, the
+playback-pause rule, assistant stages through the real reducer, and the
+toolbar summary); tsc, lint and build exit 0. Headless Chrome with the browser
+zone set to Asia/Kolkata passed 88/88 checks with no page errors at 1366x768
+and 390x844. The checks cover each section, state kept across sections,
+manual query to results to chart, time navigation followed by Compare, the AI
+flow and its error states, unavailable data and the phone menu. AI drafts in
+that run were fixture replies served by request interception, proven with a
+probe first; no model was called. The backend was not changed. Screenshots
+also exposed an empty Compare chart with misleading axes, a lowercase source
+label and a date split across lines; all three are fixed.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -726,7 +784,7 @@ depth and time) explorer.
   deliberate, reviewable change, not a configuration switch.
 - **Browser verification is automated, not a usability study.** Headless
   Chrome checks and inspected screenshots cover the demonstration flows
-  (§5d); no user testing has been done. Real browsers other than Chrome
+  (§5d–§5g); no user testing has been done. Real browsers other than Chrome
   were not tried.
 - `outside_configured_search_region` fires whenever the requested box reaches
   beyond 60–65 °E / 15–20 °N. Most realistic region requests are therefore
@@ -757,6 +815,10 @@ depth and time) explorer.
 - The time navigator (§5f) filters a 2D regional view of one result. There
   is no globe, depth-time view or trajectory interpolation, so the 4D
   requirement is not complete.
+- The four sections (§5g) are client-side views on one page. They have no
+  URLs of their own, so browser Back does not move between sections, and a
+  reload returns to Map Explorer with the draft and results cleared (session
+  state is held in memory, as before).
 
 ---
 
@@ -773,7 +835,7 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 386 with the cache-only launcher tests; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 120 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 131 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -803,9 +865,11 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (56/56; browser zone
+# Headless-Chrome UI checks against the running app (88/88; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
+# AI drafts in that run are fixture replies served by request
+# interception, proven with a probe first; no model is called.
 cd frontend && npm run lint
 
 # Live server check (offline mode) — all endpoints correct, no NaN tokens.
@@ -833,8 +897,9 @@ configured. Sensible next steps, in order:
    numbers `floatchat_core` computed; it must still never produce one.
 3. **Populate the WOA cache** when NCEI recovers, with the manual script.
    Isolate the remote read from the API process before re-enabling it.
-4. **Apply the UI/UX reference** when it is provided. The time navigator is
-   modular (§5f).
+4. **Apply the UI/UX reference** when it is provided. The section
+   workspaces (§5g) and the time navigator (§5f) are separate components.
+   Per-section URLs would make Back and reload behave as users expect.
 
 Standing constraints: the provider stays configurable and backend-only, API
 keys never appear in frontend code, and the model never computes, narrates or
