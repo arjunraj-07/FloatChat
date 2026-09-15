@@ -810,6 +810,70 @@ the 2D map. The screenshots exposed a depth-scene camera that clipped the
 scene under the legend, and a location marker covering the shallowest level;
 both are fixed.
 
+## 5i. Recorded profile history and depth-scene usability (Verified)
+
+- **Coverage wording.** `/api/coverage` gains `search_region`: 60–65° E,
+  15–20° N, parsed from the recorded extraction URL. The globe outlines
+  that region and labels it "Cached search region (…): the area this
+  dataset was extracted for. Profiles were recorded only at the marked
+  points, not across the whole region.", followed by "Argo profiles outside
+  this region are not part of the cached data." It no longer says there is
+  no data elsewhere. `bounding_box` remains the extent of the recorded
+  profile locations. When no search region is recorded, the outline is
+  labelled as that extent instead.
+- **Profile history.** In the cached result, 2 of 6 floats have more than
+  one distinct usable location: 6903060 has 5 and 2902390 has 2, giving 5
+  connections; the other 4 floats have one location each and get no history.
+  - `profileHistories` (`lib/profileHistory.ts`) groups profiles by float
+    and orders them with the existing `byObservationTime` (time, then
+    profile id). It collapses duplicate profile ids and repeated positions,
+    and skips unusable positions or times.
+  - The optional "Show profile history" toggle on the globe draws subdued
+    dashed straight joins between successive recorded locations of the same
+    float within the returned result. There are no intermediate points,
+    speeds or cross-float joins, and the markers stay selectable.
+  - The legend reads: "schematic connections between one float's recorded
+    profile locations, in time order within this result. Not measured
+    underwater tracks."
+  - A connection is shown only when both of its endpoints are visible at
+    the navigator's time.
+  - Toggling is shared display state. It does not move the camera, edit the
+    draft, run a query or call the model.
+  - Markers and dashes scale with the camera's height, so they keep a
+    roughly constant on-screen size. With history shown, "Focus on float N"
+    frames the open profile's float, where its joins (about 50 px in the
+    check) are clearly longer than the markers (about 16 px). At the Focus
+    on results view, that float's five locations overlap.
+  - On phones the globe legend is one compact coverage line, with the full
+    wording in a "More" disclosure, so it stays inside the globe.
+- **Depth scene.**
+  - **Layout:** the legend and controls moved out of the canvas, into a side
+    panel on desktop and stacked above the scene on phones (the key and
+    counts fold into a disclosure there). The depth axis sits just outside
+    the grid corner, clear of the degree labels. The camera fit covers the
+    grid, the exaggerated depth and the axis labels, using the canvas aspect
+    ratio, and the browser check confirms every sample and axis label is in
+    view.
+  - **Stepping:** "Shallower / Deeper" move through the recorded levels of
+    the selected profile; derived values are not recorded levels and are
+    skipped.
+  - **Details:** the selected level stays highlighted, and its details show
+    the returned depth (2 decimals, full value on hover), the recorded
+    pressure, the value, and its measured, derived or missing status.
+    Nothing is rounded to a grid or interpolated.
+
+Verification: backend 387 passed (1 new, for `search_region`); frontend 164
+tests passed (13 new, covering history grouping, ordering, duplicates,
+unusable points, time filtering and exact level depth and pressure); tsc,
+lint and build exit 0. Headless Chrome with the browser zone set to
+Asia/Kolkata passed 129/129 checks with no page errors, using hardware WebGL
+2. Expected connections and eligibility in that run were computed from
+`/api/floats` independently of the app code. The phone layout and the
+`--disable-3d-apis` fallback were rechecked. A first passing run still looked
+wrong in the screenshots: fixed-size markers hid the joins, the phone legend
+covered the Play button, and axis labels collided. All three are fixed
+above.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -879,14 +943,26 @@ both are fixed.
 - Three backend tests that had assumed an empty WOA cache were made hermetic
   (§5d).
 - The globe and depth scene (§5h) show one result's profile positions and
-  levels, stepped through its observation times. They draw no float
-  trajectories (the 2D map joins one float's positions in time order; the 3D
-  views draw no tracks), no ocean-wide fields and no animation between
-  observations, so the 4D requirement is only partly met. In dense columns
-  (levels about 1 m apart, drawn ×500), a click selects whichever level is
-  nearest the pointer; the details always show that level's returned values.
-- `npm audit` reports two critical advisories through `plotly.js` 4.1.0 →
-  `maplibre-gl`. They predate §5h, and nothing was changed to address them.
+  levels, stepped through its observation times. The optional history
+  overlay (§5i) joins one float's recorded locations within the returned
+  result with straight schematic lines. That is not a trajectory: there are
+  no positions between profiles, no drift, no archive-complete history and
+  no ocean-wide fields, so the 4D requirement is only partly met. In dense
+  columns (levels about 1 m apart, drawn ×500), a click selects whichever
+  level is nearest the pointer; Shallower and Deeper then reach any
+  neighbouring recorded level exactly.
+- History connections are straight chords between two recorded positions.
+  At the Focus on results view a closely spaced float's markers overlap its
+  joins; Focus on float, or zooming in, separates them. A connection crossing
+  the antimeridian would be skipped (none occurs in the cached region).
+- `npm audit` reports critical advisory GHSA-jrc7-96c5-q579 (npm advisory
+  1193680; CWE-79, CVSS 10, "MapLibre GL JS: XSS Sanitizer Bypass in
+  DOM.sanitize() via Live NamedNodeMap Removal Skip").
+  - **Affected:** `maplibre-gl` ≤6.4.0; installed 5.24.0, which is
+    transitive only: `frontend → plotly.js@4.1.0 → maplibre-gl@5.24.0`.
+  - **Also flagged:** `plotly.js` 2.35.0–4.1.0, because of that dependency.
+  - **Status:** the findings predate §5h. No upgrade or `npm audit fix` has
+    been run; an upgrade is a separate decision.
 - The four sections (§5g) are client-side views on one page. They have no
   URLs of their own, so browser Back does not move between sections, and a
   reload returns to Map Explorer with the draft and results cleared (session
@@ -900,14 +976,14 @@ both are fixed.
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline backend suite — 386 passed (127 -> 227 validator,
+# Full offline backend suite — 387 passed (127 -> 227 validator,
 # 227 -> 265 execution, 265 -> 361 natural-language drafting,
 # 361 -> 370 policy-request handling and scrubbed provider errors,
 # 370 -> 374 + 1 xfail date-normalization cases, 383 once fixed,
-# 386 with the cache-only launcher tests; nothing regressed)
+# 386 with the cache-only launcher tests, 387 with search_region; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 151 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 164 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -937,7 +1013,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (116/116; browser zone
+# Headless-Chrome UI checks against the running app (129/129; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts in that run are fixture replies served by request
@@ -972,9 +1048,9 @@ configured. Sensible next steps, in order:
 4. **Apply the UI/UX reference** when it is provided. The section
    workspaces (§5g) and the time navigator (§5f) are separate components.
    Per-section URLs would make Back and reload behave as users expect.
-5. **Trajectories, if wanted**, should come from float positions over time
-   (the returned profiles only), drawn as straight joins between observed
-   positions and labelled as such; never as underwater paths.
+5. **Profile history** (§5i) is limited to the returned result. Joining a
+   float's locations across its full archive would need that archive, and
+   should stay labelled as schematic connections, never as underwater paths.
 
 Standing constraints: the provider stays configurable and backend-only, API
 keys never appear in frontend code, and the model never computes, narrates or

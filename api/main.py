@@ -152,6 +152,10 @@ def get_coverage():
             "south": float(df_prof["latitude"].min()),
             "north": float(df_prof["latitude"].max()),
         },
+        # The area the cached subset was extracted for - not an area that
+        # was sampled throughout. `bounding_box` is the extent of the
+        # recorded profile locations inside it.
+        "search_region": dataset_index().configured_search_region,
         "depth_range_m": [
             float(df_obs["depth"].min()),
             float(df_obs["depth"].max()),
