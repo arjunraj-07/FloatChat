@@ -744,6 +744,72 @@ probe first; no model was called. The backend was not changed. Screenshots
 also exposed an empty Compare chart with misleading axes, a lowercase source
 label and a date split across lines; all three are fixed.
 
+## 5h. WebGL globe and regional depth scene (Verified)
+
+Map Explorer's visualization area now switches between three views:
+**Regional map** (the Leaflet view, unchanged and kept mounted), **Globe**,
+and a regional **depth scene** opened from the globe with Explore depths
+(Back to globe returns). All three use the same executed result, the time
+navigator's visible set and the selected profile. Switching views does not
+call the model, validate or run a query, and it keeps the time position and
+selection.
+
+- **Globe.** A WebGL sphere with Natural Earth 1:110m land outlines (public
+  domain; from the world-atlas 2.0.2 package, ISC, decoded with
+  topojson-client 3.1.0, ISC) and a 30° graticule. Profiles sit at their
+  reported latitude and longitude (x = r cos φ sin λ, y = r sin φ,
+  z = r cos φ cos λ). The data area is outlined and labelled as the only
+  coverage. Before a result, the markers are the grey cached overview,
+  labelled as not query results, and Explore depths is disabled. Drag
+  rotates, scroll or pinch zooms, and Focus on results moves to the results;
+  selecting a marker opens the same profile panel and chart. The globe draws
+  no tracks.
+- **Depth scene.** Longitude, latitude and actual depth are drawn in a local
+  equirectangular frame about the result's centre: 111.32 km per degree of
+  latitude, and cos φ0 of that per degree of longitude (about 1% east-west
+  error across 15.5–19.3° N). Depth is drawn ×500, the largest round factor
+  that keeps depth within 60% of the horizontal extent. The factor is stated
+  in the note, the depth-axis title and the legend, while labels and details
+  give actual metres. The scene has a surface degree grid with labels, a
+  north marker and a depth axis in metres. Each profile is a column anchored
+  at its reported position, with the note "Depth samples are positioned at
+  the reported profile location. These columns are not measured underwater
+  tracks."
+- **Colour and samples.** Samples are the returned levels on a sequential
+  scale (temperature: oranges, °C; salinity: blues, PSS-78, no unit). The
+  scale is fixed per result, from all its finite values. Levels without a
+  valid value are grey and off the scale; backend-derived values are
+  diamonds. Selecting a sample shows the profile identity, observation time,
+  actual depth, value, and measured, derived or missing status with the
+  stored reason, and opens that profile's chart. Nothing is interpolated,
+  smoothed or connected between floats.
+- **Time.** The existing navigator drives both views. A step changes the
+  markers and samples, not the camera or the colour scale.
+- **Rendering.** React Three Fiber 9.7.0 with three 0.186.0, compatible with
+  React 19.2.8 (no forced peers and no other upgrades). Markers and samples
+  are instanced meshes, and each view's lines are one batched geometry. The
+  canvases render on demand, so there are no frames while idle or while Map
+  Explorer is hidden. Cameras are remembered per result and refitted only for
+  a new result or by Focus on results / Reset view. Geometries, materials,
+  textures, controls and listeners are disposed on unmount. Without WebGL, on
+  a WebGL error or on context loss, the view is replaced by a message and
+  "Use the regional map".
+- **Verification probe.** The 3D views publish read-only screen positions,
+  the renderer and frame counts on `window.__floatchatScene`, so the browser
+  checks can click real markers and samples.
+
+Verification: frontend 151 tests passed (20 new, covering globe and regional
+mapping, depth direction and exaggeration, time-visible membership, missing
+and derived samples, and stable colour scales); tsc, lint and build exit 0;
+the backend was not changed. Headless Chrome with the browser zone set to
+Asia/Kolkata passed 116/116 checks with no page errors. It rendered with
+*hardware* WebGL 2 (ANGLE, Intel HD Graphics 620, Direct3D 11), as reported by
+the WebGL renderer string; no performance was measured. A second browser
+started with `--disable-3d-apis` showed the fallback message and returned to
+the 2D map. The screenshots exposed a depth-scene camera that clipped the
+scene under the legend, and a location marker covering the shallowest level;
+both are fixed.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -812,9 +878,15 @@ label and a date split across lines; all three are fixed.
   depths across queries (`comparison_view`) is still not implemented.
 - Three backend tests that had assumed an empty WOA cache were made hermetic
   (§5d).
-- The time navigator (§5f) filters a 2D regional view of one result. There
-  is no globe, depth-time view or trajectory interpolation, so the 4D
-  requirement is not complete.
+- The globe and depth scene (§5h) show one result's profile positions and
+  levels, stepped through its observation times. They draw no float
+  trajectories (the 2D map joins one float's positions in time order; the 3D
+  views draw no tracks), no ocean-wide fields and no animation between
+  observations, so the 4D requirement is only partly met. In dense columns
+  (levels about 1 m apart, drawn ×500), a click selects whichever level is
+  nearest the pointer; the details always show that level's returned values.
+- `npm audit` reports two critical advisories through `plotly.js` 4.1.0 →
+  `maplibre-gl`. They predate §5h, and nothing was changed to address them.
 - The four sections (§5g) are client-side views on one page. They have no
   URLs of their own, so browser Back does not move between sections, and a
   reload returns to Map Explorer with the draft and results cleared (session
@@ -835,7 +907,7 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 386 with the cache-only launcher tests; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 131 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 151 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -865,7 +937,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (88/88; browser zone
+# Headless-Chrome UI checks against the running app (116/116; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts in that run are fixture replies served by request
@@ -900,6 +972,9 @@ configured. Sensible next steps, in order:
 4. **Apply the UI/UX reference** when it is provided. The section
    workspaces (§5g) and the time navigator (§5f) are separate components.
    Per-section URLs would make Back and reload behave as users expect.
+5. **Trajectories, if wanted**, should come from float positions over time
+   (the returned profiles only), drawn as straight joins between observed
+   positions and labelled as such; never as underwater paths.
 
 Standing constraints: the provider stays configurable and backend-only, API
 keys never appear in frontend code, and the model never computes, narrates or
