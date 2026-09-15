@@ -637,17 +637,63 @@ include both selected compare labels measured unclipped at 1366 px, an offset
 end date read as its UTC day, and a time without a zone reported rather than
 guessed.
 
+## 5f. Time navigator (Verified)
+
+A compact control below the map steps through the latest executed result by
+observation time. It is display state only: it never edits the draft or its
+dates, calls the model or runs a query. The browser run counted execute,
+draft and validate requests before and after navigating; they were unchanged.
+
+- Steps are the distinct observation timestamps of the returned profiles
+  (`results.profiles[].time`, read as UTC); profiles sharing a timestamp form
+  one step. Retrieval and execution times are not used, no daily samples are
+  invented and no movement is interpolated. Unreadable timestamps are
+  reported, not placed.
+- The visible set is the returned profiles observed on or before the selected
+  step. "Showing N of M returned profiles through <timestamp> UTC." keeps
+  visible and returned counts apart; the map header still reports the whole
+  result.
+- Map markers follow the visible set. The view stays fitted to the whole
+  result, so it does not jump, with room kept clear above the legend. A time
+  step opens a profile observed at that time (ties go to the first profile
+  id). Marker clicks, Float Detective and Compare stay within the visible
+  set. A Compare choice observed after the selected time is shown as cleared
+  with a note, never substituted, and returns when the time includes it.
+- Lifecycle: a new execution, even of the same plan, resets to the latest
+  step with playback stopped. Play from the final step restarts at the first.
+  Playback advances one actual step every 1.2 s, stops at the end, pauses when
+  the tab is hidden, and clears its timer on unmount. With one timestamp it is
+  shown and playback and stepping are disabled. With no result it shows a
+  one-line unavailable state.
+- Code: `frontend/src/lib/timeNavigator.ts` (pure logic),
+  `components/useTimeNavigator.ts` (timer and tab visibility) and
+  `components/TimeNavigator.tsx` (presentation), kept separate for the
+  planned redesign. `comparisonAtTime` in `explorerModel.ts` generalises
+  `resolveComparison`.
+- `scripts/run_api.ps1` now defaults to cache-only WOA reads
+  (`FLOATCHAT_WOA_ALLOW_NETWORK=0` unless already set); a cache miss reports
+  the comparison as unavailable. Cache building stays manual.
+
+Verification: frontend 120 tests passed (22 new); backend 386 passed (3 new:
+the launcher default, the launcher never building the cache, and a cache miss
+without a remote read); tsc, lint and build exit 0. Headless Chrome passed
+56/56 checks with no page errors. The screenshots exposed markers hidden under
+the map legend, because the map had been fitted before its card shrank; this
+is fixed and now checked. A query that validates as having no data cannot be
+run from the UI, so the executed-but-empty navigator state is covered only by
+the pure-logic test for an empty result, not in the browser.
+
+This is a time filter over one 2D regional result. It is not the 4D (globe,
+depth and time) explorer.
+
 ## 6. Known limitations
 
-- **WOA reference values are not currently available.** NCEI
-  (`www.ncei.noaa.gov`) returned HTTP 503 / read timeouts on both its THREDDS
-  OPeNDAP endpoint and its direct file path on 2026-09-14, while the host root
-  responded 200 — a server-side outage. The cache under `data/reference/woa23/`
-  is therefore empty and `/api/woa_match/` correctly reports
-  `Comparison unavailable`. Retry with
-  `python scripts/data_feasibility/build_woa_cache.py`. The success path is
-  covered by tests using a stubbed reference column; it has **not** been
-  confirmed against live WOA data.
+- **WOA reference values: one cached column only.** NCEI returned HTTP 503
+  and read timeouts on 2026-09-14. One real WOA23 column (temperature, January,
+  the 16.5° N 62.5° E cell) was cached later under the untracked
+  `data/reference/woa23/`. The development launcher is cache-only, so every
+  other cell reports `Comparison unavailable`. Build the cache deliberately
+  with `python scripts/data_feasibility/build_woa_cache.py`.
 - **Unverified:** the cached Jan–Jun 2024 regional SST series
   (`sst_daily.parquet`, 182 records per `provenance.json`) was not re-checked
   in this milestone. Nothing consumes it yet.
@@ -669,10 +715,10 @@ guessed.
   While NCEI served "503 Service Unavailable" HTML, netCDF printed OPeNDAP
   parse errors during a WOA network read and the backend process exited
   with no traceback, shortly after each headless-Chrome run (all checks had
-  passed). The WOA code was not changed by §5e. Until the read is isolated
-  from the server process, run with `FLOATCHAT_WOA_ALLOW_NETWORK=0`; the
-  cached grid cell still works and other cells report the comparison as
-  unavailable.
+  passed). The root cause is unconfirmed; it has not been isolated, and it
+  was not reproduced again on purpose. The launcher now defaults to
+  cache-only reads (§5f); remote reads should stay off until the read is
+  isolated from the server process.
 - **No model evaluation has been performed.** Every natural-language test uses
   a fixture reply, including `tests/test_nl_examples.py`. No accuracy claim can
   be drawn from them; a live evaluation would be a separate exercise.
@@ -706,10 +752,11 @@ guessed.
   is untyped.
 - Compare works only within one executed result. Comparing periods, regions or
   depths across queries (`comparison_view`) is still not implemented.
-- The running backend (network reads enabled by the launcher) has cached one
-  real WOA23 column under the untracked `data/reference/woa23/`, so the
-  climatology difference now succeeds for profiles in that grid cell. Three
-  backend tests that had assumed an empty cache were made hermetic.
+- Three backend tests that had assumed an empty WOA cache were made hermetic
+  (§5d).
+- The time navigator (§5f) filters a 2D regional view of one result. There
+  is no globe, depth-time view or trajectory interpolation, so the 4D
+  requirement is not complete.
 
 ---
 
@@ -719,13 +766,14 @@ guessed.
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline backend suite — 383 passed (127 -> 227 validator,
+# Full offline backend suite — 386 passed (127 -> 227 validator,
 # 227 -> 265 execution, 265 -> 361 natural-language drafting,
 # 361 -> 370 policy-request handling and scrubbed provider errors,
-# 370 -> 374 + 1 xfail date-normalization cases, 383 once fixed; nothing regressed)
+# 370 -> 374 + 1 xfail date-normalization cases, 383 once fixed,
+# 386 with the cache-only launcher tests; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 98 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 120 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -737,6 +785,9 @@ cd frontend && npm test
 
 # Backend with the Gemini settings applied (key inherited, never stored):
 powershell -ExecutionPolicy Bypass -File scripts\run_api.ps1
+# WOA is cache-only by default (FLOATCHAT_WOA_ALLOW_NETWORK=0 unless set).
+# Frontend dev server, http://localhost:3000:
+cd frontend && npm run dev
 # Live Gemini, 2026-09-14. First credential: 5 draft requests HTTP 400;
 # compat GET /models 400 "Invalid Auth key."; native GET /v1beta/models 401.
 # Replacement credential: native and compat model listings both HTTP 200,
@@ -752,7 +803,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (33/33; browser zone
+# Headless-Chrome UI checks against the running app (56/56; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 cd frontend && npm run lint
@@ -764,7 +815,8 @@ FLOATCHAT_WOA_ALLOW_NETWORK=0 venv/Scripts/python.exe -m uvicorn main:app --port
 ```
 
 Environment variables: `FLOATCHAT_WOA_ALLOW_NETWORK` (`0` disables remote
-reference reads), `FLOATCHAT_WOA_TIMEOUT_S`, `FLOATCHAT_MAX_GAP_M`.
+reference reads; `scripts/run_api.ps1` sets `0` unless it is already set),
+`FLOATCHAT_WOA_TIMEOUT_S`, `FLOATCHAT_MAX_GAP_M`.
 
 ---
 
@@ -779,8 +831,10 @@ configured. Sensible next steps, in order:
    contract fixtures and say nothing about model quality.
 2. **Explain returned results**, once §5c is trusted. The model may describe
    numbers `floatchat_core` computed; it must still never produce one.
-3. **Populate the WOA cache** when NCEI recovers, enabling the climatology
-   comparison end to end.
+3. **Populate the WOA cache** when NCEI recovers, with the manual script.
+   Isolate the remote read from the API process before re-enabling it.
+4. **Apply the UI/UX reference** when it is provided. The time navigator is
+   modular (§5f).
 
 Standing constraints: the provider stays configurable and backend-only, API
 keys never appear in frontend code, and the model never computes, narrates or

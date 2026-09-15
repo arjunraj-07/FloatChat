@@ -36,6 +36,17 @@ $env:FLOATCHAT_NL_MODEL         = 'gemini-3.1-flash-lite'
 $env:FLOATCHAT_NL_RESPONSE_FORMAT = $ResponseFormat
 $env:FLOATCHAT_NL_TIMEOUT_S     = '30'
 
+# --- Climatology reference: cache-only by default --------------------------
+# Remote WOA23 reads (OPeNDAP via netCDF) were observed to end the API process
+# while NCEI served 503 pages; the root cause is unconfirmed. The launcher
+# therefore serves cached columns only, and a cache miss reports "comparison
+# unavailable". Build the cache separately and deliberately:
+#     venv\Scripts\python.exe scripts\data_feasibility\build_woa_cache.py
+# A value already set in the environment is respected.
+if ([string]::IsNullOrWhiteSpace($env:FLOATCHAT_WOA_ALLOW_NETWORK)) {
+    $env:FLOATCHAT_WOA_ALLOW_NETWORK = '0'
+}
+
 # --- Secret: inherited, never written down ---------------------------------
 # $env:FLOATCHAT_NL_API_KEY is deliberately NOT set here.
 if ([string]::IsNullOrWhiteSpace($env:FLOATCHAT_NL_API_KEY)) {
@@ -57,6 +68,7 @@ Write-Host "provider  : $env:FLOATCHAT_NL_PROVIDER"
 Write-Host "base_url  : $env:FLOATCHAT_NL_BASE_URL"
 Write-Host "model     : $env:FLOATCHAT_NL_MODEL"
 Write-Host "format    : $env:FLOATCHAT_NL_RESPONSE_FORMAT"
+Write-Host ("woa       : " + $(if ($env:FLOATCHAT_WOA_ALLOW_NETWORK -eq '0') { 'cache only (remote reads disabled)' } else { 'REMOTE READS ENABLED' }))
 Write-Host "Starting API on http://${BindHost}:${Port} ..." -ForegroundColor Cyan
 
 $python = Join-Path $repo 'venv\Scripts\python.exe'
