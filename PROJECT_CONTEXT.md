@@ -1255,6 +1255,76 @@ damage worth recording:
 person used this interface; the judgements here are the author's and the
 checks', not a usability study.
 
+## 5o. Grounded result explanations (Verified)
+
+A short explanation of the result on screen, assembled from facts the backend
+recomputes. The model never states a value: it chooses which approved sentence
+to use and which fact fills each slot, and the numbers are inserted server-side.
+
+- **Evidence** (`floatchat_core/evidence.py`). `build_evidence` revalidates and
+  re-executes the plan, then describes it as identified facts: observed dates,
+  sampled positions, profile and float counts, per-variable depth ranges and
+  value extents, exclusions, gradient findings and any climatology comparison.
+  Each fact carries a stable `id`, a `value`, its `units` and a `kind`
+  (`measured`, `derived`, `reference`, `count`, `extent`, `status`), so a
+  computed quantity is never read as an observation. For the cached query that
+  is **36 facts in 9,121 bytes**, against the 3.24 MB execution response (§8.6).
+  Nothing a client sends is treated as a measurement.
+- **Explanation** (`floatchat_core/explain.py`). Ten approved sentence
+  templates with typed slots, so `variable.*.value_min` accepts a value and not
+  a depth. A selection is rejected whole when the template is unknown, a fact id
+  is absent, a fact does not fit its slot, or one sentence mixes two variables.
+  Prose returned beside the selections is inspected and never displayed; a
+  forbidden claim - marine heatwave, detected thermocline, ocean-wide, "normal
+  conditions", "proves", "anomaly" - discards the whole answer. With no
+  provider the same templates are filled deterministically and labelled a
+  **data summary**, never `explained`.
+- **Route.** `POST /api/plan/explain`, carrying `require_user` and CSRF through
+  the new `explain_dependencies`, alongside drafting. It takes a plan and a
+  dataset version, never measurements. A dataset version that no longer matches
+  is `409 dataset_mismatch` and never reaches a provider.
+- **Interface.** "Explain results" sits with the results in the AI Assistant
+  section; no navigation section was added. Asking is always explicit. The
+  explanation is bound to the execution that produced it: a new result clears
+  it, editing filters alone does not, and a reply for superseded results is
+  dropped. Supporting measurements stay behind "View evidence".
+- **Time panel.** The "About these steps" text was measured at both viewports
+  and is **not** clipped (`scrollHeight == clientHeight`, the `<details>` inside
+  the card at 1366x768 and 390x844). The earlier report mistook the circular
+  screen-capture badge overlaying it for a layout fault. Harmless bottom
+  padding was added anyway; chart size (363 px desktop, 360 px phone) and time
+  behaviour are unchanged.
+
+Verification: backend **501 passed** (455 -> 501; 46 new); frontend **232
+passed** (219 -> 232; 13 new); tsc, lint and `next build` exit 0. Headless
+Chrome **172/172** (161 -> 172; 11 new) with no page errors, at 1366x768 and
+390x844. Explanations in that run are fixture replies served by request
+interception, proven with **its own probe** because the endpoint pattern is new
+and the API holds a live credential. **No model was called in this milestone:**
+the API log records only two 401 probes ever reaching those routes.
+
+Three defects were found by running it:
+
+1. **The executed plan is not a request plan.** The frontend first sent the
+   normalized plan returned by execution. It carries `time.inclusive`, which the
+   request schema refuses, so every real click would have returned 422 while
+   every offline test passed. The reducer now snapshots the submitted plan at
+   `execution:result`, where it is still current by construction, and
+   `explainResult` is typed to refuse a `NormalizedPlan`.
+2. **A closed `<details>` reports client rects.** The first "stays behind View
+   evidence" check used `isVisible`, which is `getClientRects().length > 0`; the
+   run reported `rowRects: 1` with `open: false`. The check now asserts the
+   element's own `open` state. The assertion was wrong, not the interface.
+3. **A misplaced phone check.** Measuring the panel in the phone section found
+   the assistant in the "ask" stage, because the no-data draft of §5n precedes
+   it. It failed loudly rather than skipping silently, and the measurement moved
+   to where the panel is actually on screen.
+
+**Not done, and not claimed:** the wording has not been evaluated against a real
+model. Only fixture replies were exercised, so nothing here is evidence that a
+live model chooses good sentences - only that whatever it chooses is
+constrained, and that unsupported choices are rejected.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -1365,10 +1435,11 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 370 -> 374 + 1 xfail date-normalization cases, 383 once fixed,
 # 386 with the cache-only launcher tests, 387 with search_region,
 # 424 with accounts and the access boundary,
-# 455 with per-profile gradients; nothing regressed)
+# 455 with per-profile gradients,
+# 501 with grounded result explanations; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 219 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 232 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -1398,11 +1469,11 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (161/161; browser zone
+# Headless-Chrome UI checks against the running app (172/172; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
-# AI drafts in that run are fixture replies served by request
-# interception, proven with a probe first; no model is called.
+# AI drafts and explanations in that run are fixture replies served by request
+# interception, each proven with its own probe first; no model is called.
 cd frontend && npm run lint
 
 # Live server check (offline mode) — all endpoints correct, no NaN tokens.

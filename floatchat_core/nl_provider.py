@@ -54,6 +54,25 @@ RESPONSE_FORMATS = ("json_schema", "json_object", "none")
 MAX_ERROR_DETAIL_CHARS = 240
 
 
+def scrub_secrets(text: str, secret: Optional[str] = None) -> str:
+    """Remove credentials from text that will reach a user or a log.
+
+    Applied at every boundary that renders provider text, not only where the
+    text is first raised. A message that has travelled through an exception is
+    exactly the kind that gets forgotten, so callers scrub again on the way
+    out; scrubbing twice costs nothing and missing once is a disclosure.
+    """
+    if not text:
+        return ""
+    if secret:
+        text = text.replace(secret, "[redacted]")
+    text = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", text)
+    text = re.sub(r"AIza[0-9A-Za-z_\-]{10,}", "[redacted]", text)
+    text = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[redacted]", text)
+    text = " ".join(text.split())
+    return text[:MAX_ERROR_DETAIL_CHARS]
+
+
 def _provider_error_detail(response: Any, secret: Optional[str]) -> Optional[str]:
     """A short, credential-scrubbed summary of a provider's error body.
 
@@ -79,13 +98,7 @@ def _provider_error_detail(response: Any, secret: Optional[str]) -> Optional[str
         return None
     if not parts:
         return None
-    text = " - ".join(parts)
-    if secret:
-        text = text.replace(secret, "[redacted]")
-    text = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", text)
-    text = re.sub(r"AIza[0-9A-Za-z_\-]{10,}", "[redacted]", text)
-    text = " ".join(text.split())
-    return text[:MAX_ERROR_DETAIL_CHARS]
+    return scrub_secrets(" - ".join(parts), secret)
 
 
 class ProviderNotConfigured(RuntimeError):

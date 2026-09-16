@@ -115,14 +115,20 @@ This matters more than it looks, because cookies and CORS disagree about what
 
 | Method | Path | Why |
 |---|---|---|
-| POST | `/api/plan/draft` | The only route that calls the paid language model |
+| POST | `/api/plan/draft` | Calls the paid language model to propose a draft |
+| POST | `/api/plan/explain` | Calls the paid language model to word an explanation |
+
+These are the only two routes that can spend money per call. Explaining sends
+no measurements: it carries a plan and a dataset version, and the server
+recomputes every value it quotes.
 
 Enforcement is a FastAPI dependency applied in `api/main.py`, so a request made
 straight to the API - curl, a script, another origin - is refused identically
 to one from the UI. **The frontend gate is a courtesy, not the control.** The
-dependency is passed into `build_plan_router`, which leaves the route open when
-no dependency is supplied; that is how the isolated router tests exercise
-drafting without an account store, and it is never how the application runs.
+dependencies are passed into `build_plan_router` as `draft_dependencies` and
+`explain_dependencies`, which leave each route open when none is supplied; that
+is how the isolated router tests exercise drafting and explaining without an
+account store, and it is never how the application runs.
 
 Gemini credentials remain backend-only and are never sent to the browser.
 

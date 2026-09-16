@@ -436,16 +436,23 @@ def woa_match(profile_id: str, variable: str = "temp"):
 
 app.include_router(build_auth_router())
 
-# Only the drafting route spends money per call, so it is the one endpoint
-# that requires an account. Everything else - coverage, floats, profiles,
-# climatology, validation and execution - stays public, so manual
-# exploration works with no account at all. The dependency is applied here,
-# in the deployed application, rather than inside the router, so the
-# requirement is enforced by the backend and cannot be bypassed by calling
-# the API directly.
+# Drafting and explaining are the two routes that can spend money per call,
+# so they are the endpoints that require an account. Everything else -
+# coverage, floats, profiles, climatology, validation and execution - stays
+# public, so manual exploration works with no account at all. The dependency
+# is applied here, in the deployed application, rather than inside the
+# router, so the requirement is enforced by the backend and cannot be
+# bypassed by calling the API directly.
+#
+# woa_match is passed down so an explanation can cite a climatology
+# comparison the server itself computed. It is injected rather than imported
+# by the router, which keeps plan_routes free of any dependency on this
+# module and lets the router tests run without the reference data.
 app.include_router(build_plan_router(
     dataset_index,
     draft_dependencies=[Depends(require_user)],
+    explain_dependencies=[Depends(require_user)],
+    woa_lookup=woa_match,
 ))
 
 

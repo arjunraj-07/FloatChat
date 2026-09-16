@@ -35,6 +35,12 @@ from floatchat_core.plan import (
     capability_report,
     pydantic_errors_to_issues,
 )
+from floatchat_core.evidence import build_evidence, dataset_version
+from floatchat_core.explain import (
+    EXPLAIN_SCHEMA_VERSION,
+    ExplainOutcome,
+    explain_result,
+)
 from floatchat_core.nl_planner import DraftOutcome, draft_plan
 from floatchat_core.nl_provider import (
     ProviderError,
@@ -70,23 +76,36 @@ def _envelope(outcome: str, requested, errors=None, **extra) -> dict:
 #: Bounds on the drafting request body itself, independent of the provider.
 MAX_DRAFT_BODY_BYTES = 32 * 1024
 
+#: An explanation request carries a plan and a dataset version, never
+#: measurements, so it has no reason to be large.
+MAX_EXPLAIN_BODY_BYTES = 32 * 1024
+
 
 def build_plan_router(
     index_provider: Callable[[], DatasetIndex],
     nl_provider_factory: Callable[[], object] | None = None,
     nl_status: Callable[[], dict] | None = None,
     draft_dependencies: list | None = None,
+    explain_dependencies: list | None = None,
+    woa_lookup: Callable[[str], dict] | None = None,
 ) -> APIRouter:
     """Router exposing plan validation over ``index_provider()``.
 
     The provider is called per request so validation always reflects the
     currently loaded tables rather than a snapshot taken at import time.
 
-    ``draft_dependencies`` are applied to ``/api/plan/draft`` only - the one
-    route that spends money per call. The deployed application passes an
-    authentication dependency there; leaving it empty keeps the route open,
-    which is how the isolated router tests exercise drafting without
-    standing up an account store. Every other route is public either way.
+    ``draft_dependencies`` and ``explain_dependencies`` are applied to
+    ``/api/plan/draft`` and ``/api/plan/explain`` respectively - the two
+    routes that can spend money per call. The deployed application passes an
+    authentication dependency to each; leaving them empty keeps those routes
+    open, which is how the isolated router tests exercise drafting and
+    explaining without standing up an account store. Every other route is
+    public either way.
+
+    ``woa_lookup`` is injected rather than imported so this module keeps no
+    dependency on the climatology endpoints. Without it, evidence simply
+    carries no comparison facts and says so, which is what the isolated
+    router tests rely on to stay offline.
     """
     router = APIRouter()
 
@@ -230,6 +249,104 @@ def build_plan_router(
         status = (503 if result["outcome"] ==
                   DraftOutcome.PROVIDER_UNAVAILABLE.value else 200)
         return JSONResponse(status_code=status, content=result)
+
+    @router.post("/api/plan/explain", dependencies=explain_dependencies or [])
+    async def plan_explain(request: Request):
+        """Explain an executed result from facts this server recomputes.
+
+        The caller sends the plan it ran and the dataset version it ran
+        against - never measurements. The plan is revalidated and re-executed
+        here, and every number in the answer comes from that recomputation, so
+        a client cannot assert a value into an explanation.
+
+        The explanation is bound to the dataset version and the plan
+        fingerprint it was built from. A caller whose dataset no longer matches
+        this server's gets ``409 dataset_mismatch`` rather than an answer about
+        different data.
+
+        A provider failure returns ``200`` carrying a deterministic data
+        summary, labelled ``source: "data_summary"`` with the reason in
+        ``provider_message``. It is a usable answer, so 503 would misdescribe
+        it - but it is never marked ``explained``, so it cannot be presented
+        as a successful model reply.
+        """
+        body = await request.body()
+        if len(body) > MAX_EXPLAIN_BODY_BYTES:
+            return JSONResponse(status_code=413, content=json_safe({
+                "schema_version": EXPLAIN_SCHEMA_VERSION,
+                "outcome": ExplainOutcome.PROVIDER_UNAVAILABLE.value,
+                "errors": [{"code": "request_too_large", "field": None,
+                            "message": f"The request body exceeds "
+                                       f"{MAX_EXPLAIN_BODY_BYTES} bytes."}],
+                "provider_message": "Request too large.",
+            }))
+
+        try:
+            payload = json.loads(body) if body else None
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            return JSONResponse(status_code=400, content=json_safe({
+                "schema_version": EXPLAIN_SCHEMA_VERSION,
+                "outcome": ExplainOutcome.PROVIDER_UNAVAILABLE.value,
+                "errors": [{"code": "malformed_json", "field": None,
+                            "message": "The request body must be a JSON object."}],
+                "provider_message": "Malformed request body.",
+            }))
+
+        raw_plan = payload.get("plan")
+        if not isinstance(raw_plan, dict):
+            return JSONResponse(status_code=400, content=json_safe({
+                "schema_version": EXPLAIN_SCHEMA_VERSION,
+                "outcome": ExplainOutcome.PROVIDER_UNAVAILABLE.value,
+                "errors": [{"code": "missing_plan", "field": "plan",
+                            "message": "The executed plan is required."}],
+                "provider_message": "No plan supplied.",
+            }))
+
+        try:
+            plan = QueryPlanRequest.model_validate(raw_plan)
+        except ValidationError as exc:
+            issues = [issue.model_dump() for issue in
+                      pydantic_errors_to_issues(exc)]
+            return JSONResponse(status_code=422, content=json_safe({
+                "schema_version": EXPLAIN_SCHEMA_VERSION,
+                "outcome": ExplainOutcome.PROVIDER_UNAVAILABLE.value,
+                "errors": issues,
+                "provider_message": "The plan did not parse, so nothing was "
+                                    "explained.",
+            }))
+
+        index = index_provider()
+        current_version = dataset_version(index)
+        claimed = payload.get("dataset_version")
+        if isinstance(claimed, str) and claimed and claimed != current_version:
+            # Explaining this would describe data the caller never saw.
+            return JSONResponse(status_code=409, content=json_safe({
+                "schema_version": EXPLAIN_SCHEMA_VERSION,
+                "outcome": ExplainOutcome.DATASET_MISMATCH.value,
+                "dataset_version": current_version,
+                "requested_dataset_version": claimed,
+                "errors": [{"code": "dataset_mismatch", "field": "dataset_version",
+                            "message": "These results came from a different "
+                                       "version of the data. Run the query "
+                                       "again before asking for an explanation."}],
+                "provider_message": "The data changed since these results were "
+                                    "produced.",
+            }))
+
+        evidence = build_evidence(plan, index, woa_lookup=woa_lookup)
+
+        try:
+            provider = (nl_provider_factory or build_provider)()
+        except (ProviderNotConfigured, ProviderError):
+            provider = None
+
+        result = explain_result(evidence, provider)
+        # The evidence travels with the answer so "View evidence" needs no
+        # second request, and so every referenced fact can be checked.
+        result["evidence"] = evidence
+        return JSONResponse(status_code=200, content=json_safe(result))
 
     @router.post("/api/plan/execute")
     async def plan_execute(request: Request):

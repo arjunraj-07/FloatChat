@@ -51,7 +51,8 @@ Explorer endpoints: `/api/health`, `/api/coverage`, `/api/floats`,
 `/api/profiles/{profile_id}`, `/api/woa_match/{profile_id}`.
 
 Query-plan endpoints: `GET /api/plan/capabilities`, `POST /api/plan/validate`,
-`POST /api/plan/execute`, `POST /api/plan/draft` and `GET /api/plan/nl_status`. The validator checks a structured exploration
+`POST /api/plan/execute`, `POST /api/plan/draft`, `POST /api/plan/explain` and
+`GET /api/plan/nl_status`. The validator checks a structured exploration
 request against the loaded data; it does not execute it, fetch anything or
 call a model. Outcomes are `valid`, `valid_partial_coverage`, `valid_no_data`,
 `unsupported` (200) and `invalid` (422); a non-JSON body is 400.
@@ -63,6 +64,17 @@ labelled as computed rather than measured. `invalid` plans are refused with
 422 and `unsupported` plans with `executed: false`. See
 [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) §5a for the full contract and
 `frontend/src/lib/planContract.ts` for the TypeScript types.
+
+`POST /api/plan/explain` takes a plan and the dataset version it was run
+against — never measurements — and returns a short explanation of that result
+with the facts behind it. The server revalidates and re-executes the plan to
+build a compact set of identified facts (about 8.5 KB, against a 3.24 MB
+execution response), so no value a client sends is ever quoted back. A model
+may only choose which of a fixed set of sentences to use and which fact fills
+each slot; the numbers are inserted server-side, and an unknown template, an
+unknown fact or an unsupported claim is rejected. With no model available the
+same sentences are built deterministically and labelled a data summary. It
+requires an account, like drafting. See §5o.
 
 ```bash
 curl -X POST http://localhost:8000/api/plan/validate \
