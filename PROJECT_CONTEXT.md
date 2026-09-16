@@ -948,6 +948,52 @@ then disappeared entirely when moved inside the globe's radius. The
 scroll-driven easing, and now waits for the scene to go idle before
 confirming it stays idle.
 
+## 5k. maplibre-gl advisory GHSA-jrc7-96c5-q579 resolved (Verified)
+
+`npm audit` had reported two critical findings since §5h: `maplibre-gl`
+≤6.4.0 (XSS sanitizer bypass in `DOM.sanitize()`), reached only transitively
+as `frontend → plotly.js@4.1.0 → maplibre-gl@5.24.0`, and `plotly.js`
+2.35.0–4.1.0 for depending on it.
+
+- **The fix: `plotly.js` `^4.1.0` → `^4.1.1`.** This is Plotly's own
+  remediation, not an upgrade forced on a transitive package: 4.1.0 declares
+  `maplibre-gl: "^5.24.0"`, and the 4.1.1 **patch** release pins
+  `maplibre-gl: "6.9.0"`, past the ≤6.4.0 affected range. `react-plotly.js`
+  peers on `plotly.js >=3.0.0`, so it dedupes onto 4.1.1 rather than pulling a
+  second copy. Only `package.json` and `package-lock.json` changed; no chart
+  code was touched.
+- **Options rejected.** A `maplibre-gl` override would have forced a 5.x→6.x
+  major on a package Plotly pins itself. A partial Plotly bundle
+  (`plotly.js-cartesian-dist-min`) *would* drop maplibre entirely - both charts
+  use only `type: 'scatter'` - but it means swapping packages and rewriting
+  both chart imports through `react-plotly.js/factory`, which is a bundle-size
+  change, not the smallest security fix. `npm audit fix --force` was not run,
+  and the advisory was not suppressed or dismissed as unreachable.
+- **Verified four ways, not just by `npm audit`:**
+  - Installed tree: `plotly.js@4.1.1 → maplibre-gl@6.9.0`, one copy.
+  - Lockfile: `maplibre-gl` appears only as 6.9.0; **zero** occurrences of
+    5.24.0; `npm audit --package-lock-only` reports 0.
+  - Clean install: `npm ci` from the committed lockfile in an isolated
+    directory resolved `maplibre-gl@6.9.0` only, one copy on disk, 0
+    vulnerabilities - peer resolution does not reinstall the vulnerable
+    version.
+  - Shipped client bundle: exactly one chunk contains maplibre, carrying the
+    `6.9.0` literal and **no** `5.24.0`.
+
+Verification: `npm audit` 2 critical → **0**; 171 frontend tests, tsc, lint
+and `next build` clean; Headless Chrome **141/141** with no page errors.
+Two checks were added, because "preserve existing export functionality" is
+otherwise untested: the profile and Compare charts each still expose
+Plotly's "Download plot as a PNG" modebar button (8 buttons), with `lasso2d`
+and `select2d` still removed by our config. Temperature/salinity panels,
+reversed depth axis, missing-data gaps, Compare curves and hover templates
+were re-checked and screenshotted.
+
+**Remaining limitation:** the full Plotly bundle still includes maplibre-gl
+(client chunks total about 6.4 MB). It is the patched version and no chart
+instantiates a map, but the code ships. Reducing it is a separate,
+interface-neutral bundle-size milestone.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -1029,14 +1075,11 @@ confirming it stays idle.
   At the Focus on results view a closely spaced float's markers overlap its
   joins; Focus on float, or zooming in, separates them. A connection crossing
   the antimeridian would be skipped (none occurs in the cached region).
-- `npm audit` reports critical advisory GHSA-jrc7-96c5-q579 (npm advisory
-  1193680; CWE-79, CVSS 10, "MapLibre GL JS: XSS Sanitizer Bypass in
-  DOM.sanitize() via Live NamedNodeMap Removal Skip").
-  - **Affected:** `maplibre-gl` ≤6.4.0; installed 5.24.0, which is
-    transitive only: `frontend → plotly.js@4.1.0 → maplibre-gl@5.24.0`.
-  - **Also flagged:** `plotly.js` 2.35.0–4.1.0, because of that dependency.
-  - **Status:** the findings predate §5h. No upgrade or `npm audit fix` has
-    been run; an upgrade is a separate decision.
+- `npm audit` reports **0 vulnerabilities**. Advisory GHSA-jrc7-96c5-q579
+  was resolved in §5k by upgrading `plotly.js` to 4.1.1, which pins a fixed
+  `maplibre-gl`. The full Plotly bundle still *ships* maplibre-gl even though
+  no chart uses a map trace: that is bundle weight, not a known
+  vulnerability. Dropping it needs a partial Plotly bundle (§5k).
 - The four sections (§5g) are client-side views on one page. They have no
   URLs of their own, so browser Back does not move between sections, and a
   reload returns to Map Explorer with the draft and results cleared (session
@@ -1087,7 +1130,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (139/139; browser zone
+# Headless-Chrome UI checks against the running app (141/141; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts in that run are fixture replies served by request
