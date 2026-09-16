@@ -1174,6 +1174,87 @@ requested (4,018,890 before the per-interval `derivation` string was moved to
 the series level). A larger archive would need the reports paginated or
 requested separately.
 
+## 5n. Interface simplification (Verified)
+
+The interface was crowded, technical and hard to navigate. This milestone
+changed presentation only: no scientific calculation, authentication rule or
+provider setting was touched, and the API is unchanged.
+
+- **Navigation and accounts.** Sections are **Explore, AI Assistant, Compare,
+  About**, with the numbered prefixes removed. Section *ids* are unchanged, so
+  state, focus targets and test ids were unaffected by the rename. Email,
+  account type and Sign out moved into an account menu; the detail switch is
+  now labelled "Detail level" with **Simple / Detailed**, and the menu states
+  in words that account type sets the starting detail level while the switch
+  changes only what you read - never identity or access.
+- **Registration.** The two-step, explanation-first chooser became one
+  ordinary form: email, password, and account type as a choice **inside** the
+  form. Sign in is a tab beside it and **Continue as guest** sits directly
+  below. The server-side rules are untouched: the same endpoints, the same
+  session cookie, the same one protected route.
+- **Exploring.** The map and the depth chart come first; filters stay in a
+  drawer that starts closed. Above the map is one short line -
+  `Arabian Sea sample - 1-9 Jan 2024 - Temperature and salinity - 0-497 m` -
+  and one action. **"Arabian Sea sample" is a display name only**: the plan
+  still carries `argo_cached_subset` and its exact bounds on the wire, which
+  a test asserts. When filters no longer match the results on screen, the
+  changed parts of that line are marked and the action reads **Update
+  results**, so a pending selection can never be read as a description of what
+  is displayed.
+- **Measurements** (was "Float Detective"). The float selector, the observation
+  selector and **Temperature / Salinity tabs** sit directly above the chart, in
+  that order, and the chart shows one variable at a time. Processing metadata
+  (identifiers, cycle, data mode, QC source) moved out to Scientific details.
+  The limitation for the variable on screen - "No salinity here: 34 levels
+  failed quality control" - sits beside the chart it affects.
+- **Playback is no longer permanent.** The controls and their explanatory
+  paragraphs are closed until **"Explore over time"** is opened. Opening only
+  reveals them: it changes no time, no selection and runs no query. Closing
+  pauses playback. A restriction stays visible either way as a compact
+  **"Through ..."** chip with **Show all times**, so a filtered result cannot
+  look complete. Time filtering, profile selection, Compare behaviour, the
+  globe and the depth scene are unchanged.
+- **Text.** Shorter labels throughout; repeated instructions and developer
+  wording removed. Detailed QC, provenance and method explanations stay behind
+  labelled expanders, "Changes with depth" is still collapsed by default, and
+  the steepest interval is still **not** called a detected thermocline.
+- **Visual.** Account menu, avatar and pending-selection styles added to the
+  token layer; coral remains reserved for errors and cautions. The map legend
+  was cut to one short line because the map fit reserves a fixed clearance
+  (`LEGEND_CLEARANCE_PX = 110`) for it - see the defect below.
+
+Verification: **219** frontend tests (203 -> 219; 16 new for the selection
+summary, plus the renamed section labels asserted alongside the stable ids);
+tsc, lint and `next build` clean; Headless Chrome **161/161** (158 -> 161) with
+no page errors, covering guest exploration, registration and sign-in, reading a
+float's temperature chart, changing filters and updating results, opening and
+closing time exploration, comparing two profiles, accepting an AI proposal from
+fixtures, scientific details and gradients, and PNG export from both charts.
+Screenshots were inspected at 1366x768 and 390x844.
+
+Three defects were found by running it, and one was self-inflicted tooling
+damage worth recording:
+
+1. **A recursive helper froze the suite.** A global replace of
+   `setInput(navSlider, ` with `setTime(` also rewrote the body of `setTime`
+   itself, so it called itself forever. Two runs halted at the identical line
+   with no timeout and no error. Diagnosed only after rejecting two wrong
+   explanations - cumulative sleep, then hot-reload - neither of which the
+   evidence supported.
+2. **The legend covered a marker.** A longer legend line wrapped past the fixed
+   clearance the map fit reserves, hiding a bottom-left marker. Fixed by
+   shortening the legend; the layout threshold was **not** lowered.
+3. **Two new checks asserted claims where they did not hold** - the region name
+   after "Use cached data" had already replaced it with an explicit box, and
+   hidden playback after the harness itself had opened it. Both moved to where
+   the claim is true.
+4. A blanket `Stop-Process node` killed the dev server along with the stalled
+   run. Later stops matched on the command line instead.
+
+**Not done, and not claimed:** no first-time user testing was performed. No
+person used this interface; the judgements here are the author's and the
+checks', not a usability study.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -1287,7 +1368,7 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 455 with per-profile gradients; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 203 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 219 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -1317,7 +1398,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (158/158; browser zone
+# Headless-Chrome UI checks against the running app (161/161; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts in that run are fixture replies served by request
@@ -1359,6 +1440,13 @@ configured. Sensible next steps, in order:
 5. **Profile history** (§5i) is limited to the returned result. Joining a
    float's locations across its full archive would need that archive, and
    should stay labelled as schematic connections, never as underwater paths.
+6. **Shrink the execution response.** The full cached query with both gradient
+   analyses returns about **3.24 MB** (§5m), because every observation and
+   every gradient interval travels in one payload. It is workable locally and
+   nothing depends on it being smaller today, but it scales with the result
+   rather than with what the screen shows. Paginating the gradient reports, or
+   fetching them per profile, is the obvious next step. This is a performance
+   task, not an interface one.
 
 Standing constraints: the provider stays configurable and backend-only, API
 keys never appear in frontend code, and the model never computes, narrates or
