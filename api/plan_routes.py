@@ -75,11 +75,18 @@ def build_plan_router(
     index_provider: Callable[[], DatasetIndex],
     nl_provider_factory: Callable[[], object] | None = None,
     nl_status: Callable[[], dict] | None = None,
+    draft_dependencies: list | None = None,
 ) -> APIRouter:
     """Router exposing plan validation over ``index_provider()``.
 
     The provider is called per request so validation always reflects the
     currently loaded tables rather than a snapshot taken at import time.
+
+    ``draft_dependencies`` are applied to ``/api/plan/draft`` only - the one
+    route that spends money per call. The deployed application passes an
+    authentication dependency there; leaving it empty keeps the route open,
+    which is how the isolated router tests exercise drafting without
+    standing up an account store. Every other route is public either way.
     """
     router = APIRouter()
 
@@ -148,7 +155,7 @@ def build_plan_router(
         status = (nl_status or provider_status)()
         return JSONResponse(status_code=200, content=json_safe(status))
 
-    @router.post("/api/plan/draft")
+    @router.post("/api/plan/draft", dependencies=draft_dependencies or [])
     async def plan_draft(request: Request):
         """Propose an editable draft from a question. Never executes anything.
 

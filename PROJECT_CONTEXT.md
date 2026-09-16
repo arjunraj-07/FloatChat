@@ -994,6 +994,79 @@ were re-checked and screenshotted.
 instantiates a map, but the code ships. Reducing it is a separate,
 interface-neutral bundle-size milestone.
 
+## 5l. Student and Scientist accounts (Verified)
+
+Accounts, sessions and one access boundary, inside the existing FastAPI
+service. No Express server, no second authentication authority, and no change
+to any scientific value. `AUTHENTICATION.md` is the full reference; this is
+what was built and what it means for the rest of the system.
+
+- **Storage** (`api/auth_store.py`): SQLite in its own configurable file
+  (`FLOATCHAT_AUTH_DB`, default `data/accounts/accounts.sqlite3`, git-ignored).
+  The Argo parquet tables and the WOA caches are never touched by it.
+  Passwords are **Argon2id** (`argon2-cffi`, t=3, m=64 MiB, p=2). Session
+  tokens come from `secrets` and **only their SHA-256 digest is stored**, so a
+  copy of the database yields no live session. Every statement is
+  parameterized.
+- **HTTP** (`api/auth_routes.py`): register, login, session, logout. The
+  session is an **HttpOnly** cookie with explicit `SameSite=Lax` and `Secure`
+  under `FLOATCHAT_COOKIE_SECURE=1`. CSRF is a double-submit token bound to
+  the session row, required on every authenticated state-changing request and
+  compared with `secrets.compare_digest`. Sessions expire after 12 hours,
+  rotate onto a new token after 30 minutes, and logout deletes the row -
+  revocation is server-side, not a cookie clear.
+- **CORS**: `allow_origins=["*"]` with credentials was replaced by an explicit
+  list (`FLOATCHAT_ALLOWED_ORIGINS`). Browsers refuse a wildcard together with
+  credentials, so the old setting could not have carried a session cookie at
+  all. The localhost arrangement, including why `localhost` and `127.0.0.1`
+  are not interchangeable here, is documented in `AUTHENTICATION.md`.
+- **The access boundary is one endpoint.** `POST /api/plan/draft` - the only
+  route that spends money per call - requires an account and a CSRF token.
+  Everything else stays public: coverage, floats, profiles, climatology,
+  capabilities, validation and execution. **Manual exploration is complete
+  without an account**, and a test asserts it. Enforcement is a FastAPI
+  dependency applied in `api/main.py`, so a direct API call is refused exactly
+  as a UI call is; the frontend gate is a courtesy, not the control. The
+  dependency is passed into `build_plan_router`, which leaves the route open
+  when none is given - that is how the isolated router tests still exercise
+  drafting, and it is never how the application runs.
+- **Roles are presentation, not permission.** `student` and `scientist` are
+  self-selected at registration. The role picks the opening view
+  (`defaultViewForRole`) and nothing else. Both roles receive byte-identical
+  responses from `/api/profiles/{id}` and `/api/coverage`, which is asserted,
+  and a browser check confirms that switching the Student/Scientific toggle
+  leaves the account role unchanged.
+- **Frontend**: `lib/auth.ts` (client), `lib/csrf.ts` (the token, in memory
+  only - never `localStorage`, a URL or a log), `components/AuthScreen.tsx`
+  (separate Student and Scientist entry screens in the marine design, with
+  registration, sign-in, loading and error states), a navbar account control,
+  and an assistant gate that explains why an account is needed and offers the
+  manual path instead. The CSRF store is its own module so `auth.ts` and
+  `planContract.ts` do not import each other.
+- **Not invented**: there is no email verification, password recovery or
+  OAuth. The server reports all three as unavailable in every session
+  response, the sign-in screen renders that list, About Data states it, and a
+  test asserts that plausible endpoints for them are 404 so a future change
+  cannot quietly add a non-working stub.
+
+Verification: backend **424 passed** (387 -> 424; 37 new, covering
+registration, duplicate emails, safe refusals, the attempt bound, expiry,
+rotation, logout revocation, CSRF, persistence across a restart, role
+tampering and the public/protected split). Frontend **185 passed** (171 ->
+185). Headless Chrome **152/152** (139 -> 152), including both account flows
+end to end on desktop and phone with temporary accounts, public exploration,
+the assistant gate, session restore across a reload, and the toggle-versus-role
+separation. tsc, lint and `next build` clean. AI drafting used fixture replies
+throughout; no paid model request was made.
+
+Two defects were found by running it rather than by reading it. Startup used
+`@app.on_event`, but the test suites build a `TestClient` without entering its
+context manager, so the account schema would never have been created under
+pytest; schema creation is now lazy per database path. And the browser
+fixture for `/api/plan/draft` still advertised only `Content-Type` with no
+credentials, so once the request carried a CSRF header the browser failed the
+preflight - the fixture now answers as the real API does.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -1082,8 +1155,13 @@ interface-neutral bundle-size milestone.
   vulnerability. Dropping it needs a partial Plotly bundle (§5k).
 - The four sections (§5g) are client-side views on one page. They have no
   URLs of their own, so browser Back does not move between sections, and a
-  reload returns to Map Explorer with the draft and results cleared (session
-  state is held in memory, as before).
+  reload returns to Map Explorer with the draft and results cleared. Signing
+  in *is* restored on reload (§5l), but the query session is not: nothing a
+  viewer builds is saved to their account.
+- Accounts (§5l) sign a viewer in and nothing more. The login attempt bound
+  is per email rather than per IP; there is no password change, account
+  deletion or admin interface; and email verification, password recovery and
+  OAuth do not exist. See `AUTHENTICATION.md`.
 
 ---
 
@@ -1093,14 +1171,15 @@ interface-neutral bundle-size milestone.
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline backend suite — 387 passed (127 -> 227 validator,
+# Full offline backend suite — 424 passed (127 -> 227 validator,
 # 227 -> 265 execution, 265 -> 361 natural-language drafting,
 # 361 -> 370 policy-request handling and scrubbed provider errors,
 # 370 -> 374 + 1 xfail date-normalization cases, 383 once fixed,
-# 386 with the cache-only launcher tests, 387 with search_region; nothing regressed)
+# 386 with the cache-only launcher tests, 387 with search_region,
+# 424 with accounts and the access boundary; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 171 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 185 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -1130,7 +1209,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (141/141; browser zone
+# Headless-Chrome UI checks against the running app (152/152; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts in that run are fixture replies served by request
@@ -1145,7 +1224,11 @@ FLOATCHAT_WOA_ALLOW_NETWORK=0 venv/Scripts/python.exe -m uvicorn main:app --port
 
 Environment variables: `FLOATCHAT_WOA_ALLOW_NETWORK` (`0` disables remote
 reference reads; `scripts/run_api.ps1` sets `0` unless it is already set),
-`FLOATCHAT_WOA_TIMEOUT_S`, `FLOATCHAT_MAX_GAP_M`.
+`FLOATCHAT_WOA_TIMEOUT_S`, `FLOATCHAT_MAX_GAP_M`, and for accounts
+`FLOATCHAT_AUTH_DB` (database file), `FLOATCHAT_COOKIE_SECURE` (`1` for
+HTTPS-only cookies) and `FLOATCHAT_ALLOWED_ORIGINS` (comma-separated CORS
+allow-list). The test suite redirects `FLOATCHAT_AUTH_DB` to a temporary file,
+so running it never touches real local accounts.
 
 ---
 

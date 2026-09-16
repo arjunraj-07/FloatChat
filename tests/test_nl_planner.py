@@ -10,6 +10,8 @@ import json
 import pytest
 
 import main as api_main
+
+from conftest import register_test_account
 from fastapi.testclient import TestClient
 
 from floatchat_core.nl_planner import (
@@ -715,11 +717,23 @@ def test_coverage_brief_carries_extents_not_rows():
 
 client = TestClient(api_main.app)
 
+# Drafting is the one route that spends money per call, so the deployed
+# application requires an account for it. These tests exercise the route's own
+# behaviour, so they sign in once with a throwaway account and present the
+# session's CSRF token. The access boundary itself is tested in test_auth.py.
+_DRAFT_ACCOUNT = register_test_account(client)
+
+
+def draft_post(**kwargs):
+    """POST /api/plan/draft as the signed-in test account."""
+    headers = dict(kwargs.pop("headers", {}))
+    headers["X-CSRF-Token"] = _DRAFT_ACCOUNT["csrf"]
+    return client.post("/api/plan/draft", headers=headers, **kwargs)
+
 
 def test_endpoint_reports_unconfigured_state_without_a_provider():
-    response = client.post("/api/plan/draft",
-                           json={"question": "temperature at 100 m",
-                                 "revision": 4})
+    response = draft_post(json={"question": "temperature at 100 m",
+                               "revision": 4})
     body = response.json()
     assert response.status_code == 503
     assert body["outcome"] == DraftOutcome.PROVIDER_UNAVAILABLE.value
@@ -754,27 +768,26 @@ def test_manual_endpoints_are_unaffected_by_the_missing_provider():
 
 
 def test_endpoint_rejects_a_missing_question():
-    assert client.post("/api/plan/draft", json={}).status_code == 400
-    assert client.post("/api/plan/draft",
-                       json={"question": "   "}).status_code == 400
+    assert draft_post(json={}).status_code == 400
+    assert draft_post(json={"question": "   "}).status_code == 400
 
 
 def test_endpoint_rejects_an_invalid_reference_date():
-    response = client.post("/api/plan/draft",
-                           json={"question": "x", "reference_date": "yesterday"})
+    response = draft_post(json={"question": "x",
+                               "reference_date": "yesterday"})
     assert response.status_code == 400
     assert response.json()["errors"][0]["code"] == "invalid_reference_date"
 
 
 def test_endpoint_rejects_an_oversized_body():
-    response = client.post("/api/plan/draft", content=b"{" + b"x" * 40000,
-                           headers={"Content-Type": "application/json"})
+    response = draft_post(content=b"{" + b"x" * 40000,
+                          headers={"Content-Type": "application/json"})
     assert response.status_code == 413
 
 
 def test_endpoint_rejects_a_malformed_body():
-    response = client.post("/api/plan/draft", content="{bad",
-                           headers={"Content-Type": "application/json"})
+    response = draft_post(content="{bad",
+                          headers={"Content-Type": "application/json"})
     assert response.status_code == 400
 
 

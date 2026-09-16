@@ -12,7 +12,7 @@ from functools import lru_cache
 
 import pandas as pd
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 API_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +23,12 @@ for _path in (BASE_DIR, API_DIR):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+import auth_store  # noqa: E402
+from auth_routes import (  # noqa: E402
+    apply_rotated_session,
+    build_auth_router,
+    require_user,
+)
 from plan_routes import build_plan_router  # noqa: E402
 
 from floatchat_core.plan_validation import DatasetIndex  # noqa: E402
@@ -39,13 +45,39 @@ from floatchat_core.woa import (  # noqa: E402
 
 app = FastAPI(title="FloatChat Explorer API")
 
+#: Browsers refuse a wildcard origin together with credentials, and session
+#: cookies are credentials, so the allowed origins are explicit. The frontend
+#: dev server runs on http://localhost:3000 and this API on port 8000 of the
+#: same host; cookies ignore the port, so they are same-site while the
+#: requests are still cross-origin and need CORS. Override for a deployment
+#: with FLOATCHAT_ALLOWED_ORIGINS (comma-separated).
+DEFAULT_ALLOWED_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "FLOATCHAT_ALLOWED_ORIGINS", DEFAULT_ALLOWED_ORIGINS).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-CSRF-Token"],
 )
+
+# Re-issues a rotated session cookie onto whatever response a route returns.
+app.middleware("http")(apply_rotated_session)
+
+
+# The account database is prepared on import rather than in a startup event:
+# the test suites construct TestClient without entering its context manager,
+# so startup handlers would never run there. It lives in its own configurable
+# file (FLOATCHAT_AUTH_DB) and is git-ignored; the Argo tables and the
+# scientific reference caches are never touched by it.
+auth_store.init_db()
+auth_store.purge_expired()
 
 PROC_DIR = os.path.join(BASE_DIR, "scripts", "data_feasibility", "data", "processed")
 
@@ -402,7 +434,19 @@ def woa_match(profile_id: str, variable: str = "temp"):
     })
 
 
-app.include_router(build_plan_router(dataset_index))
+app.include_router(build_auth_router())
+
+# Only the drafting route spends money per call, so it is the one endpoint
+# that requires an account. Everything else - coverage, floats, profiles,
+# climatology, validation and execution - stays public, so manual
+# exploration works with no account at all. The dependency is applied here,
+# in the deployed application, rather than inside the router, so the
+# requirement is enforced by the backend and cannot be bypassed by calling
+# the API directly.
+app.include_router(build_plan_router(
+    dataset_index,
+    draft_dependencies=[Depends(require_user)],
+))
 
 
 if __name__ == "__main__":

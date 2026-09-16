@@ -19,6 +19,7 @@ dependencies = [
     "gsw",
     "requests",
     "certifi",
+    "argon2-cffi",
 ]
 
 [project.optional-dependencies]

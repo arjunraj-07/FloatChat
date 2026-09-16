@@ -31,3 +31,8 @@ node_modules/
 # Locally derived reference caches. The cached WOA extracts under
 # data/reference/ are small and ARE tracked on purpose so that the offline
 # tests and the evidence panel are reproducible without network access.
+
+# Local account database (Argon2id password hashes and server-side
+# sessions). Never committed: it holds real credentials for whoever has
+# registered on this machine. Path is configurable via FLOATCHAT_AUTH_DB.
+data/accounts/

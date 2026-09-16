@@ -6,6 +6,10 @@
 fastapi==0.141.1
 uvicorn==0.52.4
 
+# Accounts: Argon2id password hashing for local sign-in (api/auth_store.py).
+# Sessions and the schema use the standard library (sqlite3, secrets, hashlib).
+argon2-cffi==25.1.0
+
 # Data handling
 pandas==2.3.3
 numpy==2.4.6
