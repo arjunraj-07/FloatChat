@@ -874,6 +874,80 @@ wrong in the screenshots: fixed-size markers hid the joins, the phone legend
 covered the Play button, and axis labels collided. All three are fixed
 above.
 
+## 5j. Marine-atlas visual redesign and cinematic introduction (Verified)
+
+The `floatchat-marine-atlas` export was used as a **design reference and
+component source**, not as an application. Nothing about the data, the query
+workflow or the scientific wording changed.
+
+- **Taken from the export:** the palette (deep marine `#16323C` navigation,
+  muted sea-green `#0B6864`, warm neutral `#F1F0E9`/`#F9F8F3` surfaces, ochre
+  `#8A512B` for cautions), IBM Plex Sans/Mono, the radii, spacing and motion
+  tokens (`--ease: cubic-bezier(0.2,0,0,1)`, 170/160/240/200 ms), and the
+  component language - topbar, cards, chips, segmented controls, stage rail,
+  filter drawer, contents rail. These live in `src/app/globals.css` as CSS
+  custom properties exposed through Tailwind v4 `@theme inline`.
+- **Left behind deliberately:** the export's Express server, its synthetic
+  `preview-fixture.ts` profiles, its rule-based demo question parser, its
+  "Simulated UI only" preview panel, its SVG map placeholder, and its
+  shadcn/Radix, framer-motion, drei and wouter dependencies. **No new runtime
+  dependency was added.** The export's account screens were not ported; see
+  `AUTHENTICATION.md` for why and for what real authentication would require.
+- **Navigation** keeps the four sections (§5g) and every test id, now with
+  `01`-`04` index labels, an active underline, and the Student/Scientific
+  switch in the topbar (in the menu on phones).
+- **Cinematic introduction** (`components/IntroScene.tsx`,
+  `lib/introProgress.ts`):
+  - It is an **overlay with its own scroll container** above the workspace,
+    which stays mounted underneath. Skipping or replaying it therefore costs
+    no map view, camera, selection or query state.
+  - Three scroll-linked chapters over 2.05 viewports: the ocean planet, the
+    cached study region, and a schematic look below the surface. Progress,
+    chapter boundaries, camera easing and the motion rule are pure functions
+    in `lib/introProgress.ts`, unit-tested without a browser.
+  - **It shows real data.** The globe uses the same Natural Earth coastlines
+    as the globe view - now shared through `components/scene/coastlines.ts`,
+    which also removed the duplicate topojson decode in `GlobeView` - and the
+    second chapter outlines the recorded `search_region` with the **actual
+    cached profile positions** inside it, labelled "Profiles were recorded
+    only at those points, not across the whole region."
+  - The third chapter is a drawn float and an evenly spaced ruler, labelled
+    "Schematic sequence · not a measured trajectory". The planet and the
+    underwater scene never share a frame: any position near the view axis at a
+    workable camera distance falls inside the globe's radius and would be
+    hidden by it, so the chapters cut between them.
+  - **Motion is controllable.** A visible "Skip introduction", a "Pause
+    motion" toggle, pausing when the tab is hidden, and
+    `prefers-reduced-motion: reduce` turning ambient motion off and flattening
+    the story into a static readable sequence. The canvas renders on demand,
+    so a paused, hidden or reduced-motion scene draws nothing at all - the
+    browser check confirms the frame counter stops.
+  - It plays once per browser (`localStorage["floatchat.intro.seen"]`, which
+    the app works correctly without). `?intro=0` skips it and `?intro=1`
+    always plays it; the browser checks use both.
+- **Preserved and re-verified:** real Argo values, QC policy and provenance;
+  the draft/validate/execute and stale-proposal state machine; the
+  backend-only provider; the globe, depth scene and WebGL fallback; profile
+  history and time filtering; exact-level Shallower/Deeper; and Compare
+  selections, timeline position and camera across navigation.
+
+Verification: frontend 171 tests passed (7 new, covering scroll progress,
+clamping, chapter boundaries, camera easing and the motion rule); tsc, lint
+and `next build` exit 0. Headless Chrome passed **139/139** checks with no
+page errors on hardware WebGL 2, including ten new introduction checks. No
+backend file changed, so the backend suite was not re-run.
+
+Three defects were found by these checks rather than by reading the code: a
+unit test caught `floatDescent(1)` returning 0.99, so the float never finished
+its descent; the Compare chart lost 48 px to the new workspace header and fell
+below its readable minimum; and a section heading was styled with the 10 px
+uppercase *eyebrow* token, rendering "PROPOSED CHANGES (2)". A fourth was
+visible only in the screenshots: the schematic float first filled the frame,
+then disappeared entirely when moved inside the globe's radius. The
+"pause stops rendering" check was also measuring during the camera's
+scroll-driven easing, and now waits for the scene to go idle before
+confirming it stays idle.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -983,7 +1057,7 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 386 with the cache-only launcher tests, 387 with search_region; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 164 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 171 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -1013,7 +1087,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (129/129; browser zone
+# Headless-Chrome UI checks against the running app (139/139; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts in that run are fixture replies served by request
@@ -1045,9 +1119,9 @@ configured. Sensible next steps, in order:
    numbers `floatchat_core` computed; it must still never produce one.
 3. **Populate the WOA cache** when NCEI recovers, with the manual script.
    Isolate the remote read from the API process before re-enabling it.
-4. **Apply the UI/UX reference** when it is provided. The section
-   workspaces (§5g) and the time navigator (§5f) are separate components.
-   Per-section URLs would make Back and reload behave as users expect.
+4. **Per-section URLs.** The marine-atlas visual design is applied (§5j),
+   but the section is still local state: Back and reload do not return to
+   the section you were in, and no workspace can be linked to directly.
 5. **Profile history** (§5i) is limited to the returned result. Joining a
    float's locations across its full archive would need that archive, and
    should stay labelled as schematic connections, never as underwater paths.
