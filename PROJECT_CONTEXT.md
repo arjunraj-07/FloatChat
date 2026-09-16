@@ -1303,7 +1303,7 @@ interception, proven with **its own probe** because the endpoint pattern is new
 and the API holds a live credential. **No model was called in this milestone:**
 the API log records only two 401 probes ever reaching those routes.
 
-Three defects were found by running it:
+Four things were found by running it, the last self-inflicted tooling damage:
 
 1. **The executed plan is not a request plan.** The frontend first sent the
    normalized plan returned by execution. It carries `time.inclusive`, which the
@@ -1319,6 +1319,14 @@ Three defects were found by running it:
    the assistant in the "ask" stage, because the no-data draft of §5n precedes
    it. It failed loudly rather than skipping silently, and the measurement moved
    to where the panel is actually on screen.
+4. **A stopped task is not a stopped process.** Stopping the background *task*
+   ended its wrapper while `next dev` (PID 16236) kept serving port 3000, so the
+   first `next build` ran beside a live dev server - the shared-`.next` hazard
+   this project has hit before. Next 16 keeps `.next/dev` and `.next/build`
+   apart and nothing was damaged: the app still rendered and the dev log was
+   clean. The build was nonetheless redone with the process genuinely stopped
+   and the port confirmed free, because "probably harmless" is not the standard
+   that instruction set. Check the listener, not the task.
 
 **Not done, and not claimed:** the wording has not been evaluated against a real
 model. Only fixture replies were exercised, so nothing here is evidence that a
