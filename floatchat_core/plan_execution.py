@@ -25,7 +25,14 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from .plan import DepthMode, Outcome, QueryPlanRequest, normalize_plan
+from .gradients import gradient_report
+from .plan import (
+    Analysis,
+    DepthMode,
+    Outcome,
+    QueryPlanRequest,
+    normalize_plan,
+)
 from .plan_validation import DatasetIndex, apply_filters, validate_plan
 from .woa import DEFAULT_MAX_GAP_M, json_safe, match_value_at_depth
 
@@ -169,6 +176,44 @@ def _derived_rows(plan: QueryPlanRequest, matched: pd.DataFrame,
     return rows
 
 
+#: The variable each gradient analysis describes.
+GRADIENT_VARIABLE = {
+    Analysis.TEMPERATURE_GRADIENT: "temp",
+    Analysis.SALINITY_GRADIENT: "psal",
+}
+
+
+def _gradient_rows(plan: QueryPlanRequest, matched: pd.DataFrame,
+                   max_gap_m: float) -> list:
+    """Per-profile vertical gradients, for the gradient analyses requested.
+
+    Computed from the levels this plan already selected, so its depth range,
+    variables and QC/data-mode policy are respected without a second query
+    path. A gradient is always between two *measurements*: values derived at
+    an exact depth are never used as endpoints.
+    """
+    requested = [a for a in dict.fromkeys(plan.analyses)
+                 if a in GRADIENT_VARIABLE]
+    wanted = {v.value for v in plan.variables}
+    names = [GRADIENT_VARIABLE[a] for a in requested
+             if GRADIENT_VARIABLE[a] in wanted]
+    if not names or matched.empty:
+        return []
+
+    rows = []
+    for profile_id, group in matched.groupby("profile_id", sort=True):
+        ordered = group.sort_values("depth")
+        depths = [float(value) for value in ordered["depth"]]
+        series = {
+            name: [None if pd.isna(value) else float(value)
+                   for value in ordered[name]]
+            for name in names
+        }
+        rows.append(gradient_report(depths, series, max_gap_m=max_gap_m,
+                                    profile_id=str(profile_id)))
+    return rows
+
+
 def execute_plan(plan: QueryPlanRequest, index: DatasetIndex,
                  max_gap_m: float = DEFAULT_MAX_GAP_M,
                  max_observations: int = DEFAULT_MAX_OBSERVATIONS) -> dict:
@@ -225,6 +270,28 @@ def execute_plan(plan: QueryPlanRequest, index: DatasetIndex,
         })
 
     derived = _derived_rows(plan, matched, max_gap_m)
+    gradients = _gradient_rows(plan, matched, max_gap_m)
+    if gradients:
+        limitations.append({
+            "code": "gradients_are_derived",
+            "message": (
+                "Gradients and their midpoint depths are derived quantities: "
+                "each is a first difference between two adjacent measured "
+                "levels, with no smoothing or interpolation. Intervals wider "
+                f"than the {max_gap_m:g} m maximum-gap policy, and intervals "
+                "touching a level without an accepted value, are reported as "
+                "breaks rather than bridged."
+            ),
+        })
+        if plan.depth.mode is DepthMode.AT_DEPTH:
+            limitations.append({
+                "code": "gradients_use_observed_levels",
+                "message": (
+                    "Gradients come from the observed levels of each profile. "
+                    "A single value derived at an exact depth cannot support "
+                    "a gradient, which needs two measurements."
+                ),
+            })
     envelope["executed"] = True
     envelope["executed_at"] = datetime.now(timezone.utc).isoformat()
     envelope["results"] = {
@@ -248,6 +315,8 @@ def execute_plan(plan: QueryPlanRequest, index: DatasetIndex,
                 "no value could be justified and `value` is null."
             ),
         },
+        "gradients": gradients,
+        "gradient_count": len(gradients),
         "truncated": truncated,
         "variables": [v.value for v in dict.fromkeys(plan.variables)],
         "limitations": limitations,

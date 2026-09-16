@@ -1053,7 +1053,7 @@ Verification: backend **424 passed** (387 -> 424; 37 new, covering
 registration, duplicate emails, safe refusals, the attempt bound, expiry,
 rotation, logout revocation, CSRF, persistence across a restart, role
 tampering and the public/protected split). Frontend **185 passed** (171 ->
-185). Headless Chrome **152/152** (139 -> 152), including both account flows
+185). Headless Chrome **152/152** (141 -> 152; 11 new), including both account flows
 end to end on desktop and phone with temporary accounts, public exploration,
 the assistant gate, session restore across a reload, and the toggle-versus-role
 separation. tsc, lint and `next build` clean. AI drafting used fixture replies
@@ -1066,6 +1066,113 @@ pytest; schema creation is now lazy per database path. And the browser
 fixture for `/api/plan/draft` still advertised only `Content-Type` with no
 credentials, so once the request carried a CSRF header the browser failed the
 preflight - the fixture now answers as the real API does.
+
+## 5m. Per-profile temperature and salinity gradients (Verified)
+
+A first difference between two adjacent measurements, and nothing more. The
+calculation lives in `floatchat_core/gradients.py` (pure, no pandas, no HTTP)
+and is reused by `execute_plan`, so there is no second query path.
+
+- **What is computed.** For consecutive eligible levels, shallower `1` and
+  deeper `2`: `gradient = (value2 - value1) / (depth2 - depth1)`. Depth is
+  metres positive down as stored, so temperature falling with depth gives a
+  **negative** gradient. Units are stated, and practical salinity keeps no
+  invented numerator unit ("per metre", PSS-78 dimensionless).
+- **It respects the executed query.** The levels handed to it are the ones
+  `apply_filters` already selected, so the plan's depth range, variables and
+  QC/data-mode policy apply without being re-implemented. A rejected level
+  arrives as `None`.
+- **Derived quantities are labelled.** Both the gradient and the interval
+  **midpoint depth** are derived; the midpoint is the arithmetic centre of two
+  sampled depths, not a depth anything was sampled at. Each interval carries
+  its two source measurements, so any value can be recomputed by hand.
+- **Nothing is bridged.** Four break reasons are reported instead of a number:
+  `missing_value`, `gap_exceeds_policy`, `conflicting_duplicate_depth` and
+  `unusable_depth`. No smoothing, fitting, interpolation or extrapolation.
+- **Maximum-gap policy.** Adjacent levels more than **20 m** apart are breaks.
+  That limit is `DEFAULT_MAX_GAP_M`, reused from the climatology matching
+  configuration (`FLOATCHAT_MAX_GAP_M`) and reported in every series as an
+  **application policy** - not a property of the ocean and not a published
+  threshold.
+- **Edge cases are explicit.** Duplicate depths whose values agree collapse to
+  one sample; duplicates that **conflict** exclude that depth entirely rather
+  than averaging it; non-finite values and non-finite depths are excluded;
+  fewer than two accepted samples gives `insufficient_samples`. Division by
+  zero is unreachable, and a guard keeps it that way.
+- **At-depth plans.** Gradients come from observed levels only; derived values
+  are never endpoints. An at-depth plan adds the limitation
+  `gradients_use_observed_levels`, stating that a single value derived at an
+  exact depth cannot support a gradient.
+- **Interpretation, bounded.** `strongest_cooling` reports the steepest
+  negative temperature interval as **"Strongest cooling interval in this
+  result."** with a caveat naming sampling spacing, measurement noise and the
+  requested depth range, and denying that it is a thermocline, mixed-layer
+  depth, anomaly or marine heatwave. Ties resolve to the shallower interval so
+  the answer is deterministic. With no cooling interval, a `cooling_note` says
+  so rather than going silent. Temperature and salinity are independent:
+  absent salinity never suppresses temperature.
+- **Capabilities changed only for what exists end to end.** `Analysis` gains
+  `temperature_gradient`, and `salinity_gradient` moves to implemented; the
+  frontend `ANALYSES` array mirrors the new order (the alignment test compares
+  positionally). `thermocline_estimation` stays **unimplemented**, with its
+  reason updated to say that per-profile gradients exist but the steepest
+  interval is not a detected thermocline. Regional cross-sections remain
+  unoffered.
+- **Interface.** One expandable **"Changes with depth"** section in the profile
+  panel. Student view gives plain language and the interval depths; Scientific
+  view adds signed gradients, units, endpoints, the derived midpoint, the
+  method and the gap policy. The section carries `data-profile`, and the report
+  is selected from the executed result **by profile id** - there is no separate
+  request, so a reply cannot arrive late and appear under another profile.
+
+Verification: backend **455 passed** (424 -> 455; 31 new, covering known linear
+gradients, constant profiles, inversions, the sign convention, missing
+salinity, gaps at and beyond the policy, non-finite values and depths,
+agreeing and conflicting duplicates, insufficient samples, tie-breaking, the
+refusal to claim a thermocline, and every real cached profile). Frontend
+**203 passed** (185 -> 203). Headless Chrome **158/158** (152 -> 158; 6 new),
+covering the section's ownership by profile, student wording, the cooling
+label and its caveat, stated breaks, the scientific detail, and the section
+following the selected profile. tsc, lint and `next build` clean.
+
+One interval from the real cached data, recomputed from its two source
+measurements (profile 2902201_287_A):
+
+```
+upper level : 26.52899932861328 degC at 4.075772555280808 m
+lower level : 26.533000946044922 degC at 9.741956071402047 m
+by hand     : (26.533000946044922 - 26.52899932861328)
+              / (9.741956071402047 - 4.075772555280808) = 0.0007062280
+reported    : 0.0007062280 degrees Celsius per metre (ITS-90)
+midpoint    : 6.908864313341427 m (derived, not sampled)
+```
+
+That profile yields 27 temperature intervals and 6 breaks; its salinity
+reports `insufficient_samples`, because the cached salinity was rejected -
+reported, not filled in. Its strongest cooling interval is 70.17-77.62 m at
+-0.246 degC/m.
+
+Four defects were found by running it rather than by reading it. A unit test
+caught fixtures still carrying `derivation` after it moved to the series
+level. The frontend blamed distance for `no_eligible_intervals`, which a
+rejected level between two good ones also produces, so the wording now points
+at the breaks instead of guessing. The new section cost the depth chart 30 px
+and failed the 1366x768 layout check at 241 px against a 250 px threshold;
+that was fixed by reclaiming header spacing, **not** by lowering the
+threshold, and the chart now measures 257 px. And the student sentence read
+"Between 85.7-86.6 m, temperature falls 0.52 degC between 85.7-86.6 m",
+because the template repeated what the helper already said.
+
+**Remaining limitations.** The analysis is bounded to individual profiles:
+there is no thermocline or mixed-layer detection, and no regional
+cross-section. How many intervals exist depends on the 20 m gap policy, so a
+sparsely sampled profile legitimately yields few. Salinity gradients are rare
+in this cache because most cached levels have no accepted salinity. Gradients
+travel inside the execution response, so the payload grows with the result:
+the full cached query is **3,243,018 bytes** with both gradient analyses
+requested (4,018,890 before the per-interval `derivation` string was moved to
+the series level). A larger archive would need the reports paginated or
+requested separately.
 
 ## 6. Known limitations
 
@@ -1171,15 +1278,16 @@ preflight - the fixture now answers as the real API does.
 # Offline reprocessing — 3,382 observations, 11 profiles, 0 exclusions
 venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 
-# Full offline backend suite — 424 passed (127 -> 227 validator,
+# Full offline backend suite — 455 passed (127 -> 227 validator,
 # 227 -> 265 execution, 265 -> 361 natural-language drafting,
 # 361 -> 370 policy-request handling and scrubbed provider errors,
 # 370 -> 374 + 1 xfail date-normalization cases, 383 once fixed,
 # 386 with the cache-only launcher tests, 387 with search_region,
-# 424 with accounts and the access boundary; nothing regressed)
+# 424 with accounts and the access boundary,
+# 455 with per-profile gradients; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 185 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 203 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -1209,7 +1317,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (152/152; browser zone
+# Headless-Chrome UI checks against the running app (158/158; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts in that run are fixture replies served by request

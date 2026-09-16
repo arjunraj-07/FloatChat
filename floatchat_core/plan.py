@@ -116,9 +116,10 @@ class Analysis(str, Enum):
     PROFILE_SUMMARY = "profile_summary"
     DEPTH_PROFILE = "depth_profile"
     WOA_CLIMATOLOGY_COMPARISON = "woa_climatology_comparison"
+    TEMPERATURE_GRADIENT = "temperature_gradient"
+    SALINITY_GRADIENT = "salinity_gradient"
     # Declared, not implemented.
     THERMOCLINE_ESTIMATION = "thermocline_estimation"
-    SALINITY_GRADIENT = "salinity_gradient"
     MARINE_HEATWAVE_DETECTION = "marine_heatwave_detection"
     ANOMALY_SIGNIFICANCE_TEST = "anomaly_significance_test"
     FORECAST = "forecast"
@@ -174,20 +175,32 @@ ANALYSIS_CAPABILITIES: dict[Analysis, Capability] = {
         ),
         provided_by="GET /api/woa_match/{profile_id}",
     ),
+    Analysis.TEMPERATURE_GRADIENT: Capability(
+        implemented=True,
+        description=(
+            "Vertical temperature gradient between adjacent accepted levels of "
+            "one profile, with the strongest cooling interval identified."
+        ),
+        provided_by="floatchat_core.gradients.gradient_report",
+    ),
+    Analysis.SALINITY_GRADIENT: Capability(
+        implemented=True,
+        description=(
+            "Vertical practical-salinity gradient between adjacent accepted "
+            "levels of one profile. Salinity is absent from most cached "
+            "levels, so many intervals are reported as breaks rather than "
+            "bridged."
+        ),
+        provided_by="floatchat_core.gradients.gradient_report",
+    ),
     Analysis.THERMOCLINE_ESTIMATION: Capability(
         implemented=False,
         description="Thermocline depth and strength from a temperature profile.",
         unavailable_reason=(
-            "No production implementation exists. No thermocline estimator is "
-            "defined in floatchat_core."
-        ),
-    ),
-    Analysis.SALINITY_GRADIENT: Capability(
-        implemented=False,
-        description="Vertical salinity gradient analysis.",
-        unavailable_reason=(
-            "No production implementation exists, and salinity is absent from "
-            "most cached levels."
+            "No thermocline estimator is defined in floatchat_core. "
+            "Per-profile gradients exist (temperature_gradient), but the "
+            "steepest cooling interval is not a detected thermocline: that "
+            "needs a stated definition, a criterion and validation."
         ),
     ),
     Analysis.MARINE_HEATWAVE_DETECTION: Capability(
