@@ -194,14 +194,13 @@ ANALYSIS_CAPABILITIES: dict[Analysis, Capability] = {
         provided_by="floatchat_core.gradients.gradient_report",
     ),
     Analysis.THERMOCLINE_ESTIMATION: Capability(
-        implemented=False,
-        description="Thermocline depth and strength from a temperature profile.",
-        unavailable_reason=(
-            "No thermocline estimator is defined in floatchat_core. "
-            "Per-profile gradients exist (temperature_gradient), but the "
-            "steepest cooling interval is not a detected thermocline: that "
-            "needs a stated definition, a criterion and validation."
+        implemented=True,
+        description=(
+            "Per-profile thermocline estimate: the strongest eligible cooling "
+            "interval in the analysed depth range, with the interval midpoint "
+            "as an estimated depth. Requires temperature."
         ),
+        provided_by="floatchat_core.thermocline.estimate",
     ),
     Analysis.MARINE_HEATWAVE_DETECTION: Capability(
         implemented=False,

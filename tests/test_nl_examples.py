@@ -93,11 +93,14 @@ EXAMPLES = [
         DraftOutcome.UNSUPPORTED_REQUEST,
     ),
     (
-        "thermocline estimation is reported unavailable",
+        # The registry, not the model, decides. Thermocline estimation became
+        # an implemented analysis, so a model still calling it unsupported is
+        # overruled and the question is drafted.
+        "thermocline estimation is drafted now that it is implemented",
         "how deep is the thermocline",
         {"intent": "unsupported",
          "plan_patch": {"analyses": ["thermocline_estimation"]}},
-        DraftOutcome.UNSUPPORTED_REQUEST,
+        DraftOutcome.PROPOSED_DRAFT,
     ),
     (
         "a year outside cached coverage is kept as asked",

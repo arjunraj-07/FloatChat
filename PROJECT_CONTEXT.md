@@ -1561,8 +1561,147 @@ vague questions (case E); no conversational memory beyond the draft; and ten
 cases is a small sample - a larger set with human labels would be needed before
 claiming anything general.
 
+## 5s. Per-profile thermocline estimate (Verified)
+
+An estimate of where one temperature profile steepens, defined before it was
+written. `floatchat_core/thermocline.py` reads the intervals
+`floatchat_core/gradients.py` already accepted and adds no second data path:
+QC, raw/adjusted selection, depth conversion and the maximum-gap policy are
+inherited, not re-implemented.
+
+**The method, and its sources.** NOAA describes the thermocline as "the
+transition layer between warmer mixed water at the ocean's surface and cooler
+deep water below", in which temperature "decreases rapidly" with depth
+(<https://oceanservice.noaa.gov/facts/thermocline.html>). Romero et al. (2023),
+*Improving the thermocline calculation over the global ocean*, Ocean Sci. **19**,
+887-901, <https://doi.org/10.5194/os-19-887-2023>, record that "the thermocline
+depth is often defined as the depth of the maximum vertical temperature
+gradient" (attributed to Fiedler, 2010) and cite Jiang et al. (2017) filtering
+gradient points against a thermocline standard of **> 0.2 °C m⁻¹**.
+
+This implements the *maximum-gradient* definition only, as
+`strongest-eligible-cooling-interval` v1.0. It deliberately does **not**
+implement the sigmoid/N²_T method Romero et al. propose: that fits a function
+over a water column to about 2 km using density and conservative temperature,
+and this deployment holds a 0-500 m extract with sparse salinity. The result
+says so rather than implying the better method was used.
+
+**What is returned, and what it is not.** The candidate is the strongest
+eligible **cooling** interval. Its endpoint depths and temperatures are recorded
+measurements, carried in the result so any figure can be recomputed by hand. The
+representative depth is the interval **midpoint** - a derived value, labelled
+`estimated_depth_is_derived`, never described as a measurement. The endpoints
+are **not** called the thermocline's top and bottom: a first difference between
+two levels locates where a profile steepens, not the boundaries of a layer.
+
+**Thresholds, and which are ours.** Only `MIN_GRADIENT_C_PER_M = 0.2` comes from
+a citation, and even there it is applied to a first difference between adjacent
+accepted levels rather than the quantity those authors filtered - an adaptation,
+stated as one. Everything else is an **application policy** for this prototype,
+reported with every result so a reader can disagree: at least 5 accepted levels
+and 3 eligible intervals (`insufficient_evidence` below that); the candidate at
+least **2x** the median cooling of the rest of the profile, so a uniform slope is
+not reported as a layer; at least **2** touching cooling intervals, so an
+isolated sharp step reads as local structure; and a rival within **0.9** of the
+best magnitude makes the answer `ambiguous` rather than decisive. None of these
+is a universal oceanographic standard, and none was moved to improve the counts
+below.
+
+**Cooling only.** An absolute gradient would let a warming interval be reported
+as a thermocline. Temperature inversions are real structure - common beneath
+barrier layers and at high latitudes - but this method cannot name them, so such
+profiles return `no_qualifying_candidate` with that limitation stated.
+
+**Refusals are about the method, not the ocean.** Every
+`no_qualifying_candidate` reason ends with the same sentence: *"This is a
+statement about this method and this depth range; it is not evidence that no
+thermocline exists here."* `insufficient_evidence` (too little data to judge) is
+a distinct status from `no_qualifying_candidate` (enough data, nothing met the
+criteria), and `not_applicable` covers a request made without temperature.
+Estimates describe **only the analysed depth range**, which is the depth extent
+actually selected for that profile - so a clipped query says it was clipped, and
+a candidate touching the edge of the range carries `at_analysed_boundary`.
+
+**Real-profile verification, on the fixed snapshot.** `argo-recent-20260917T133016Z`,
+unchanged: 12 floats, 40 profiles, 7,171 levels. Over all 40 profiles, with no
+threshold tuning:
+
+| Status | Profiles |
+|---|---|
+| `estimated` | **20** |
+| `ambiguous` | **9** |
+| `no_qualifying_candidate` | **11** |
+| `insufficient_evidence` | 0 |
+
+One result recomputed by hand from its own recorded endpoints, profile
+`1901898_303_A`: 24.413000 °C at 110.218972 m and 22.750999 °C at 118.465614 m
+give (22.750999 - 24.413000) / (118.465614 - 110.218972) = **-0.2015366 °C/m**,
+matching the reported gradient, with a **1.6620 °C** fall over **8.2466 m** and a
+midpoint of **114.34229 m**, matching the reported estimated depth.
+
+**Integration.** The existing `thermocline_estimation` analysis identifier was
+reused; its capability moved from `implemented=False` to `implemented=True` only
+once the path worked end to end, and `provided_by` names
+`floatchat_core.thermocline.estimate`. `execute_plan` emits `thermoclines` (one
+row per returned profile) and `thermocline_count` beside `gradients`. The
+default drafts request it alongside the temperature gradient, since it reads
+those same gradients.
+
+**Payload.** The same full query measured with and without the analysis:
+**4.54 MB -> 4.61 MB**, **+66.2 KB (1.49%)**. No profile array is duplicated; a
+row carries its two endpoints and its policy settings, not the profile.
+
+**Interface.** A compact, expandable *Thermocline estimate* section sits beside
+the existing per-profile analyses, selected by profile id so switching profiles
+can never leave a stale estimate under another one. It shows the estimated depth
+marked *(derived, not a measurement)*, the measured levels that support it with
+the fall and the signed gradient, and an expandable *Method and limits* with the
+citations and the application policies. When there is no candidate it shows the
+backend's reason and nothing else - no fabricated depth, and no confidence
+percentage anywhere. On the temperature chart the supporting interval is a
+translucent band with a dashed midpoint line, both drawn **below** the traces so
+no measurement is obscured, annotated *"estimated thermocline depth (derived)"*.
+The full-width map, measurements below it, the chat layout and automatic results
+are unchanged, as are the comparison and PNG-export controls.
+
+**The model does not compute this.** Gemini receives backend facts or nothing;
+no explanation template asks it to derive, adjust or narrate a thermocline
+depth.
+
+**Verification.** Backend **562 passed** (536 -> 562; 26 new in
+`tests/test_thermocline.py`, plus three existing capability tests updated
+because `thermocline_estimation` is now implemented - one now expects a draft
+where it expected `unsupported_request`, and two moved to analyses that are
+still unimplemented). Every fixture in the new file is a **labelled synthetic
+profile**, built through the real gradient engine, covering: a hand-calculated
+cooling transition; uniform and uniformly sloping profiles; weak cooling;
+warming-only and mixed inversions; an isolated sharp interval; two equally
+strong transitions and a tie; too few levels; rejected levels and a gap wider
+than policy; duplicate and near-identical depths; non-finite values; reversed
+input order; a clipped range and a boundary candidate; and a salinity series
+offered by mistake. Frontend **229 passed** (226 -> 229), `tsc --noEmit` and
+lint clean. Browser suite: 182/182, desktop and phone, with fixture AI
+replies and no model call.
+
+**Limitations.** A first difference between two levels is not a layer thickness,
+and the midpoint is not a measured depth. Sparse sampling sets the resolution:
+where levels are 20 m apart, so is the estimate. Inversions are outside the
+method. The 0.2 °C m⁻¹ criterion was published for a different quantity. The
+snapshot reaches about 500 m, so nothing deeper can be seen. And `estimated` is
+not a detection: it means the strongest cooling interval here met these criteria,
+in this depth range.
+
 ## 6. Known limitations
 
+- **The thermocline estimate is an estimate, under stated policies.** §5s defines it as the strongest eligible cooling interval between two
+  adjacent accepted levels. The reported depth is the interval midpoint, a
+  derived value; the interval endpoints are not the layer's top and bottom;
+  the resolution is the sampling, so 20 m apart levels give a 20 m estimate.
+  Temperature inversions are outside the method and are reported as having
+  no qualifying candidate. Only the 0.2 °C m⁻¹ minimum comes from a
+  citation - support, prominence, contiguity and ambiguity are application
+  policies. A refusal is a statement about the method and the analysed depth
+  range, never evidence that no thermocline exists.
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
   and read timeouts on 2026-09-14. One real WOA23 column (temperature, January,
   the 16.5° N 62.5° E cell) was cached later under the untracked
@@ -1705,9 +1844,13 @@ venv/Scripts/python.exe scripts/data_feasibility/build_woa_cache.py --variables 
 cd frontend && npx tsc --noEmit
 cd frontend && npm run build
 
+# Thermocline counts and payload on the fixed snapshot, no threshold changes:
+#   40 profiles - 20 estimated, 9 ambiguous, 11 no qualifying candidate
+#   execution response 4.54 MB -> 4.61 MB (+66.2 KB, 1.49%)
+
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (170/170; browser zone
+# Headless-Chrome UI checks against the running app (182/182; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts and explanations in that run are fixture replies served by request
@@ -1758,12 +1901,20 @@ Other sensible steps, in order:
    the float's full archive, and must still be labelled as schematic
    connections, never as underwater paths.
 6. **Shrink the execution response.** The full cached query with both gradient
-   analyses returns about **3.24 MB** (§5m), because every observation and
-   every gradient interval travels in one payload. It is workable locally and
+   analyses and the thermocline estimate returns about **4.61 MB** (§5m,
+   §5s), because every observation and every gradient interval travels in one
+   payload. It is workable locally and
    nothing depends on it being smaller today, but it scales with the result
    rather than with what the screen shows. Paginating the gradient reports, or
    fetching them per profile, is the obvious next step. This is a performance
    task, not an interface one.
+
+7. **Advanced analyses still unimplemented.** Regional cross-sections, mixed-
+   layer depth and marine-heatwave detection were all deliberately out of scope
+   for §5s and remain unbuilt; `marine_heatwave_detection`, `forecast` and
+   `anomaly_significance_test` are still registered as unavailable with their
+   reasons. A thermocline *thickness* - as opposed to the estimated depth
+   §5s reports - would need a layer definition this method does not have.
 
 Standing constraints: the provider stays configurable and backend-only, API
 keys never appear in frontend code, and the model never computes, narrates or

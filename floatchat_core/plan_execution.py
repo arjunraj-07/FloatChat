@@ -26,6 +26,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from .gradients import gradient_report
+from .thermocline import estimate as estimate_thermocline
 from .plan import (
     Analysis,
     DepthMode,
@@ -183,6 +184,44 @@ GRADIENT_VARIABLE = {
 }
 
 
+def _thermocline_rows(plan: QueryPlanRequest, gradients: list,
+                      matched: pd.DataFrame) -> list:
+    """One thermocline estimate per profile, when the analysis is requested.
+
+    Reads the gradient reports this execution already produced, so the estimate
+    is built from the same accepted levels: nothing is recomputed, bridged or
+    smoothed, and a value derived at an exact depth is never an endpoint.
+
+    The analysed range is the depth extent actually selected for that profile,
+    not the range the plan asked for, so a clipped profile says so.
+    """
+    if Analysis.THERMOCLINE_ESTIMATION not in set(plan.analyses):
+        return []
+    if "temp" not in {v.value for v in plan.variables}:
+        # Asking for a thermocline without temperature is answered, not
+        # silently dropped: the reason belongs in the result.
+        return [{
+            "profile_id": None,
+            **estimate_thermocline(None),
+        }]
+
+    rows = []
+    for report in gradients:
+        profile_id = report.get("profile_id")
+        series = (report.get("variables") or {}).get("temp")
+        analysed = None
+        if profile_id is not None and not matched.empty:
+            levels = matched[matched["profile_id"] == profile_id]
+            usable = levels["depth"].dropna()
+            if not usable.empty:
+                analysed = [float(usable.min()), float(usable.max())]
+        rows.append({
+            "profile_id": profile_id,
+            **estimate_thermocline(series, analysed_range_m=analysed),
+        })
+    return rows
+
+
 def _gradient_rows(plan: QueryPlanRequest, matched: pd.DataFrame,
                    max_gap_m: float) -> list:
     """Per-profile vertical gradients, for the gradient analyses requested.
@@ -271,6 +310,7 @@ def execute_plan(plan: QueryPlanRequest, index: DatasetIndex,
 
     derived = _derived_rows(plan, matched, max_gap_m)
     gradients = _gradient_rows(plan, matched, max_gap_m)
+    thermoclines = _thermocline_rows(plan, gradients, matched)
     if gradients:
         limitations.append({
             "code": "gradients_are_derived",
@@ -317,6 +357,8 @@ def execute_plan(plan: QueryPlanRequest, index: DatasetIndex,
         },
         "gradients": gradients,
         "gradient_count": len(gradients),
+        "thermoclines": thermoclines,
+        "thermocline_count": len(thermoclines),
         "truncated": truncated,
         "variables": [v.value for v in dict.fromkeys(plan.variables)],
         "limitations": limitations,

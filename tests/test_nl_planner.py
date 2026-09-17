@@ -381,10 +381,10 @@ def test_an_unsupported_analysis_is_reported_from_the_registry():
 def test_an_unsupported_analysis_is_never_swapped_for_a_supported_one():
     result, _ = run({
         "intent": "draft",
-        "plan_patch": {"analyses": ["thermocline_estimation"]},
+        "plan_patch": {"analyses": ["anomaly_significance_test"]},
     })
     assert result["outcome"] == DraftOutcome.UNSUPPORTED_REQUEST.value
-    assert result["proposed_plan"]["analyses"] == ["thermocline_estimation"]
+    assert result["proposed_plan"]["analyses"] == ["anomaly_significance_test"]
 
 
 def test_capability_truth_comes_from_the_registry_not_the_model():

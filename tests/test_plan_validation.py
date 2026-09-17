@@ -728,9 +728,10 @@ def test_capabilities_endpoint_matches_the_registry():
 
 def test_capabilities_report_unimplemented_operators_honestly():
     body = strict_json(client.get("/api/plan/capabilities"))
-    # Gradients moved to implemented in 5m; thermocline detection did not.
-    for name in ("marine_heatwave_detection", "thermocline_estimation",
-                 "forecast", "anomaly_significance_test"):
+    # Gradients moved to implemented in 5m and the thermocline estimate in 5s;
+    # these did not.
+    for name in ("marine_heatwave_detection", "forecast",
+                 "anomaly_significance_test"):
         assert body["analyses"][name]["implemented"] is False
         assert body["analyses"][name]["unavailable_reason"]
 
