@@ -1485,11 +1485,17 @@ Three things were found by running it:
 3. **Reduced motion could not demand zero frames.** The opening query repaints
    the scene a few times as it lands. Continuous animation would add about 90
    frames over the window; the check now allows at most five, which still
-   separates "stopped" from "animating".
+   separates "stopped" from "animating". *§5s revisits this:* the tolerance was
+   not the weak part - the settling loop was, and it now waits for this page's
+   own query before measuring.
 
 **Payload note.** The full cached query with gradients returns about **4.24 MB
 as an execution response** for this snapshot, up from 3.24 MB for the 2024 one.
 That is a response size, not a request. SS8.6 still applies.
+*Superseded by §5s:* this figure states neither the variables nor the depth
+extent and could not be reproduced under any configuration tried. Use the
+matched table in §5s, where the same query measures 4.54 MB (temperature only)
+and 8.54 MB (both variables, both gradients).
 
 **Not done, and not claimed:** no first-time user testing; the region was not
 expanded, because the original box returned enough coverage; and the extract is
@@ -1633,6 +1639,12 @@ threshold tuning:
 | `no_qualifying_candidate` | **11** |
 | `insufficient_evidence` | 0 |
 
+`insufficient_evidence` is 0 **over the full 0-498 m range**, which is a fact
+about this snapshot, not a state that cannot occur: clipping the same query to
+0-3 m makes all six matching profiles `insufficient_evidence`, and 0-12 m makes
+35 of 36 `no_qualifying_candidate`. Both are exercised in the browser suite so
+the two wordings are known to differ on screen.
+
 One result recomputed by hand from its own recorded endpoints, profile
 `1901898_303_A`: 24.413000 °C at 110.218972 m and 22.750999 °C at 118.465614 m
 give (22.750999 - 24.413000) / (118.465614 - 110.218972) = **-0.2015366 °C/m**,
@@ -1647,9 +1659,37 @@ row per returned profile) and `thermocline_count` beside `gradients`. The
 default drafts request it alongside the temperature gradient, since it reads
 those same gradients.
 
-**Payload.** The same full query measured with and without the analysis:
-**4.54 MB -> 4.61 MB**, **+66.2 KB (1.49%)**. No profile array is duplicated; a
-row carries its two endpoints and its policy settings, not the profile.
+**Payload, measured as a matched comparison.** Every figure below is the
+length in bytes of the JSON body `execute_plan` returns, serialised identically
+for every row (`json.dumps`, the same way the API renders it). These are
+**uncompressed response-body bytes**, not bytes transferred on the wire, and
+**MB means 10⁶ bytes** (MiB, 2²⁰, is given alongside). One snapshot,
+`argo-recent-20260917T133016Z`; one region, the cached Arabian Sea box; one
+depth range, 0-498 m; only the requested analyses and variables differ.
+
+| Request | Bytes | MB | MiB |
+|---|---|---|---|
+| temperature, temperature gradient | 4,542,445 | 4.54 | 4.33 |
+| … **+ thermocline estimation** | 4,610,193 | 4.61 | 4.40 |
+| temperature + salinity, both gradients | 8,543,918 | 8.54 | 8.15 |
+| … **+ thermocline estimation** | 8,611,666 | 8.61 | 8.21 |
+
+The thermocline rows cost **+66.2 KiB** either way - 1.49% of the
+temperature-only request, 0.79% of the both-variable one - because one row
+carries two endpoints and the policy settings, never a profile array. Adding
+salinity and its gradient costs **+4.00 MB (88%)**, which dwarfs it.
+
+**Reconciling §5q's 4.24 MB.** That figure was not a matched measurement and
+**could not be reproduced** here. It was recorded as "the full cached query
+with gradients" without stating the variables, the depth extent or the
+serialisation, and no configuration tried reproduces it: the documented opening
+query (temperature only, 0-498 m) gives 4.54 MB / 4.33 MiB; 0-475 m gives 4.38
+MB / 4.18 MiB and 0-480 m gives 4.42 MB / 4.21 MiB, so a narrower depth extent
+is the likeliest origin, but that is an inference, not a reconciliation. The
+figure to rely on is the table above. It also corrects a related claim: the
+both-variable, both-gradient request on **this** snapshot is **8.54 MB**, not
+the 3.24 MB recorded for the 2024 snapshot in §5m nor the 4.24 MB of §5q.
+**None of that growth is attributable to this milestone**, which adds 66.2 KiB.
 
 **Interface.** A compact, expandable *Thermocline estimate* section sits beside
 the existing per-profile analyses, selected by profile id so switching profiles
@@ -1668,7 +1708,7 @@ are unchanged, as are the comparison and PNG-export controls.
 no explanation template asks it to derive, adjust or narrate a thermocline
 depth.
 
-**Verification.** Backend **562 passed** (536 -> 562; 26 new in
+**Verification.** Backend **563 passed** (536 -> 563; 27 new in
 `tests/test_thermocline.py`, plus three existing capability tests updated
 because `thermocline_estimation` is now implemented - one now expects a draft
 where it expected `unsupported_request`, and two moved to analyses that are
@@ -1680,10 +1720,49 @@ strong transitions and a tie; too few levels; rejected levels and a gap wider
 than policy; duplicate and near-identical depths; non-finite values; reversed
 input order; a clipped range and a boundary candidate; and a salinity series
 offered by mistake. Frontend **229 passed** (226 -> 229), `tsc --noEmit` and
-lint clean. Browser suite: 182/182, desktop and phone, with fixture AI
-replies and no model call.
+lint clean. Browser suite: **184/184**, desktop and phone, with fixture AI replies
+and no model call, including captures of all four outcomes - a supported
+estimate with its chart annotation, an ambiguous one, no qualifying candidate
+and insufficient evidence - plus the expanded method details and a phone view.
 
-**Limitations.** A first difference between two levels is not a layer thickness,
+**Two defects were found by looking at the screenshots, not by the assertions.**
+Without a candidate the expanded details printed the analysed-range note twice,
+because the midpoint slot fell back to it; the midpoint note is now shown only
+when there is a midpoint. And the capture helper that scrolls the panel into
+view left the phone page scrolled down, so two later "reachable in the
+viewport" checks failed - it now restores every scroll position it touches.
+
+**One pre-existing check was diagnosed and fixed, not excused.** `intro:
+prefers-reduced-motion turns ambient motion off` failed on one run of this
+milestone and passed on the next. A passing rerun is not an explanation, so the
+cause was traced in the code. The intro canvas is `frameloop="demand"`
+(`IntroScene.tsx`), so with ambient motion off it draws only when something
+invalidates it - and its `useFrame` still re-invalidates while
+`camera.position.lerp(target, 0.06)` converges, which takes roughly twenty
+frames after the markers arrive. That is **necessary rendering after a data
+update**, finite and terminating; it is not ambient animation.
+
+The defect was in the check's synchronization. `waitForQuiet` watches HTTP
+request counters, and those are *already* quiet in the gap between navigating
+and the reloaded page issuing its own query, so the settling loop could take
+two equal 400 ms samples of a canvas that had drawn exactly once, call it
+settled, and then count the camera convergence as movement. The failing run
+read **"settled at 1, then 15 frames"**; passing runs read 16 and 22, i.e. the
+data had already landed before measurement.
+
+The fix waits for *this* page's `/plan/execute` to be issued (polled in the
+driver, since `countCalls` is driver-side and would otherwise interpolate a
+constant into a page expression), then for quiet, then requires **three**
+consecutive equal frame samples rather than two. The check now also asserts the
+scene's own `ambient === false` through its probe, not just the label. Nothing
+was removed, retried blindly or relaxed: the tolerance stays at five frames
+over a 1.5 s window against the roughly ninety that continuous animation would
+add. It now reads **"settled at 22, then 22 frames"** - zero further frames.
+
+**Limitations.** On a 0-500 m chart the supporting interval's band is often
+invisible, because the interval really is about 2 m tall; the dashed midpoint
+line and its "(derived)" label carry the annotation, and the band is not
+widened to look impressive. A first difference between two levels is not a layer thickness,
 and the midpoint is not a measured depth. Sparse sampling sets the resolution:
 where levels are 20 m apart, so is the estimate. Inversions are outside the
 method. The 0.2 °C m⁻¹ criterion was published for a different quantity. The
@@ -1846,11 +1925,13 @@ cd frontend && npm run build
 
 # Thermocline counts and payload on the fixed snapshot, no threshold changes:
 #   40 profiles - 20 estimated, 9 ambiguous, 11 no qualifying candidate
-#   execution response 4.54 MB -> 4.61 MB (+66.2 KB, 1.49%)
+#   execution response, temperature only, 0-498 m, uncompressed body bytes:
+#   4,542,445 B -> 4,610,193 B (+66.2 KiB, 1.49%); with salinity and its
+#   gradient as well, 8,543,918 B -> 8,611,666 B (+66.2 KiB, 0.79%)
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (182/182; browser zone
+# Headless-Chrome UI checks against the running app (184/184; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts and explanations in that run are fixture replies served by request
@@ -1900,10 +1981,10 @@ Other sensible steps, in order:
    floats" note and `profileHistory.ts` all went. If it ever returns it needs
    the float's full archive, and must still be labelled as schematic
    connections, never as underwater paths.
-6. **Shrink the execution response.** The full cached query with both gradient
-   analyses and the thermocline estimate returns about **4.61 MB** (§5m,
-   §5s), because every observation and every gradient interval travels in one
-   payload. It is workable locally and
+6. **Shrink the execution response.** The opening query returns about **4.61
+   MB** and the both-variable, both-gradient query about **8.61 MB** (§5s's
+   matched table), because every observation and every gradient interval
+   travels in one payload. It is workable locally and
    nothing depends on it being smaller today, but it scales with the result
    rather than with what the screen shows. Paginating the gradient reports, or
    fetching them per profile, is the obvious next step. This is a performance

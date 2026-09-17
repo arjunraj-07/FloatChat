@@ -102,9 +102,17 @@ NOT_ABSENCE = (
     "evidence that no thermocline exists here."
 )
 
+def _refusal(text: str) -> str:
+    """A refusal reason, always carrying the not-absence disclaimer."""
+    return text.rstrip() + NOT_ABSENCE
+
+
 STATUS_REASONS = {
     "not_applicable": "Temperature was not analysed, so no thermocline estimate is possible.",
-    "insufficient_evidence": (
+    # Distinct from ``no_qualifying_candidate``: there, the evidence was
+    # enough to judge and nothing met the criteria. Both carry the
+    # not-absence disclaimer, because neither is evidence about the ocean.
+    "insufficient_evidence": _refusal(
         "Too few accepted levels or eligible intervals in the analysed range to "
         "judge whether a transition layer is present."
     ),
@@ -114,11 +122,6 @@ STATUS_REASONS = {
         "the ocean has no thermocline here."
     ),
 }
-
-
-def _refusal(text: str) -> str:
-    """A refusal reason, always carrying the not-absence disclaimer."""
-    return text.rstrip() + NOT_ABSENCE
 
 
 def _cooling(intervals) -> list:

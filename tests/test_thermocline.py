@@ -139,7 +139,17 @@ def test_a_tie_resolves_to_the_shallower_interval_deterministically():
 def test_too_few_levels_is_insufficient_evidence_not_an_absent_thermocline():
     result = est([0, 10, 20], [25.0, 21.0, 20.0])
     assert result["status"] == "insufficient_evidence"
-    assert "insufficient" in result["status"]
+    assert "not evidence that no thermocline exists here" in result["reason"]
+
+
+def test_insufficient_evidence_and_no_candidate_do_not_read_alike():
+    """Two different statements: cannot judge, versus judged and nothing met it."""
+    thin = est([0, 10, 20], [25.0, 21.0, 20.0])
+    judged = est(list(range(0, 70, 10)), [20.0] * 7)
+    assert thin["status"] == "insufficient_evidence"
+    assert judged["status"] == "no_qualifying_candidate"
+    assert thin["reason"] != judged["reason"]
+    assert "Too few accepted levels" in thin["reason"]
 
 
 @pytest.mark.parametrize("depths,temps", [
