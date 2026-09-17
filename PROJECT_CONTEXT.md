@@ -1495,6 +1495,72 @@ That is a response size, not a request. SS8.6 still applies.
 expanded, because the original box returned enough coverage; and the extract is
 a bounded 30-day window, not complete regional coverage.
 
+## 5r. What the real model actually handles (Verified)
+
+Fixture checks prove the application constrains a model; they say nothing about
+what a real one gets right. Ten cases were run through the **actual** planner
+and explanation paths against the active snapshot, and judged against values the
+backend computed - never by asking another model.
+
+**Model** `gemini-3.1-flash-lite` (the configured provider, unchanged).
+**Snapshot** `argo-recent-20260917T133016Z`, fixed throughout: 12 floats, 40
+profiles, 7,171 levels, observed 2026-08-18 to 2026-09-17 UTC.
+**Provider requests: 12 of a 12 ceiling** - 10 in the first run, 2 retrying the
+two cases a provider outage had blocked. The ceiling is enforced *before* a
+request is made, by a counting wrapper around the adapter, so retries and any
+internal repair request are included in that number.
+
+| Case | Asked | Result |
+|---|---|---|
+| A | temperature 0-200 m | **pass** (blocked first, passed on retry) |
+| B | temperature and salinity 0-200 m | **pass** (blocked first, passed on retry) |
+| C | temperature at exactly 100 m | **pass** - `at_depth 100`, validator `valid_partial_coverage`; the interpolation limit was preserved, no value invented |
+| D | June 2019 | **pass** - dates kept, validator `valid_no_data` |
+| E | "Show me the data." | **fail** - returned the draft unchanged instead of asking what was meant |
+| F | detect marine heatwaves | **pass** - `unsupported_request`, named as unavailable |
+| G | include QC flag 4 | **pass** - `unsupported_request`; quality filtering was not weakened |
+| H | "Now show only salinity." | **pass** - variables became `psal`, and 0-200 m, region and dates were kept |
+| I | explain an executed result | **pass** - every number traced to a backend fact id |
+| J | explain a comparison | **pass** - no comparison claimed, which is the honest answer since the contract has no template for one |
+
+**Totals: 9 pass, 1 fail, 0 blocked** after the retry (2 were blocked by an
+HTTP 503 "model is currently experiencing high demand" before it). Latencies for
+the ten first-run requests: 1.3-9.2 s. The adapter returns no usage block, so
+none is reported and no cost is inferred.
+
+This is evidence about these ten cases. It is not a model-accuracy figure.
+
+Failures are kept apart by kind. The two 503s are **blocked** - a provider
+outage, not a semantic judgement. Case E is an **interpretation** weakness in
+the model, not an application defect: the planner offered a draft that changed
+nothing and assumed nothing, which is safe but unhelpful. **No application
+defect was found**, so nothing was fixed for its own sake.
+
+On multi-turn: there is no conversation history. Continuity is carried by the
+*draft* - the planner receives `current_draft` and returns a `plan_patch` - so
+case H is a genuine follow-up in the application's real design. A model cannot
+refer back to an earlier question, only to the draft it produced. Recorded as a
+limitation, not worked around.
+
+Reproduce with::
+
+    powershell -ExecutionPolicy Bypass -File scripts\evaluate_gemini.ps1
+
+Results are written to `scripts/evaluation/`. `-MaxRequests` lowers the ceiling,
+and `FLOATCHAT_EVAL_ONLY=A,B` retries named cases without spending the budget on
+cases that already have a verdict. The harness is never imported by the test
+suite and never runs with it; `test_evaluation_harness.py` exercises its
+judgement with fixtures, including that the ceiling stops a request rather than
+counting one afterwards.
+
+Verification: backend **536 passed** (522 -> 536; 14 new, all fixture-based).
+The frontend was not touched, so its build and browser suite were not re-run.
+
+**Unresolved, for a later task:** no clarification behaviour to rely on for
+vague questions (case E); no conversational memory beyond the draft; and ten
+cases is a small sample - a larger set with human labels would be needed before
+claiming anything general.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -1607,7 +1673,8 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 424 with accounts and the access boundary,
 # 455 with per-profile gradients,
 # 501 with grounded result explanations,
-# 522 with refreshable dataset snapshots; nothing regressed)
+# 522 with refreshable dataset snapshots,
+# 536 with the evaluation harness's own checks; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
 # Frontend interaction tests — 226 passed, run under three time zones. Uses Node's built-in runner and
@@ -1673,10 +1740,10 @@ recent extract, with the January 2024 snapshot kept as the fallback.
 
 Other sensible steps, in order:
 
-1. **Configure a provider and evaluate it.** Point `FLOATCHAT_NL_*` at a real
-   service and build a genuine evaluation — real calls, human labels — against
-   the labelled examples in `tests/test_nl_examples.py`. Today those are
-   contract fixtures and say nothing about model quality.
+1. **Widen the evaluation.** §5r ran ten cases against the real model and
+   recorded what it handled; that is evidence about those cases, not a general
+   accuracy figure. A larger labelled set, and a decision about clarification
+   behaviour for vague questions, are the next steps.
 2. **Evaluate the explanations against a real model.** Grounded explanations
    shipped in §5o, but only fixture replies have ever been exercised. Nothing
    yet shows that a live model chooses *good* sentences - only that whatever

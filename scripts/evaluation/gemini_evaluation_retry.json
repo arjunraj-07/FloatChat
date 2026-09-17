@@ -1,0 +1,159 @@
+{
+  "generated_at": "2026-09-17T14:17:58.657557+00:00",
+  "snapshot": "argo-recent-20260917T133016Z",
+  "model": "gemini-3.1-flash-lite",
+  "provider_kind": "openai_compatible",
+  "provider_requests": 2,
+  "budget": 2,
+  "latencies_s": [
+    5.62,
+    1.12
+  ],
+  "usage": "not returned by this adapter",
+  "totals": {
+    "pass": 2,
+    "fail": 0,
+    "blocked": 0
+  },
+  "cases": [
+    {
+      "case": "A",
+      "question": "Show temperature from 0 to 200 m.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "outcome": "proposed_draft",
+        "plan": {
+          "schema_version": "1.0",
+          "time": {
+            "start": "2026-08-18T00:00:00Z",
+            "end": "2026-09-17T23:59:59.999999Z"
+          },
+          "region": {
+            "kind": "named",
+            "name": "argo_cached_subset"
+          },
+          "depth": {
+            "mode": "range",
+            "min_m": 0.0,
+            "max_m": 200.0
+          },
+          "variables": [
+            "temp"
+          ],
+          "qc_policy": {
+            "accepted_qc_flags": [
+              1
+            ],
+            "data_modes": [
+              "R",
+              "A",
+              "D"
+            ]
+          },
+          "selection": {
+            "platforms": [],
+            "profile_ids": []
+          },
+          "analyses": [
+            "profile_summary",
+            "depth_profile",
+            "temperature_gradient"
+          ],
+          "outputs": []
+        },
+        "assumptions": [],
+        "clarification": null,
+        "unsupported": [],
+        "validation_outcome": "valid_partial_coverage",
+        "parse_error": null
+      },
+      "verdict": "pass",
+      "reason": "",
+      "latency_s": 5.62
+    },
+    {
+      "case": "B",
+      "question": "Show temperature and salinity from 0 to 200 m.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "outcome": "proposed_draft",
+        "plan": {
+          "schema_version": "1.0",
+          "time": {
+            "start": "2026-08-18T00:00:00Z",
+            "end": "2026-09-17T23:59:59.999999Z"
+          },
+          "region": {
+            "kind": "named",
+            "name": "argo_cached_subset"
+          },
+          "depth": {
+            "mode": "range",
+            "min_m": 0.0,
+            "max_m": 200.0
+          },
+          "variables": [
+            "temp",
+            "psal"
+          ],
+          "qc_policy": {
+            "accepted_qc_flags": [
+              1
+            ],
+            "data_modes": [
+              "R",
+              "A",
+              "D"
+            ]
+          },
+          "selection": {
+            "platforms": [],
+            "profile_ids": []
+          },
+          "analyses": [
+            "profile_summary",
+            "depth_profile",
+            "temperature_gradient"
+          ],
+          "outputs": []
+        },
+        "assumptions": [],
+        "clarification": null,
+        "unsupported": [],
+        "validation_outcome": "valid_partial_coverage",
+        "parse_error": null
+      },
+      "verdict": "pass",
+      "reason": "",
+      "latency_s": 1.12
+    }
+  ]
+}

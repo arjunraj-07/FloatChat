@@ -1,0 +1,545 @@
+{
+  "generated_at": "2026-09-17T14:16:43.011893+00:00",
+  "snapshot": "argo-recent-20260917T133016Z",
+  "model": "gemini-3.1-flash-lite",
+  "provider_kind": "openai_compatible",
+  "provider_requests": 10,
+  "budget": 12,
+  "latencies_s": [
+    5.8,
+    9.17,
+    1.92,
+    7.67,
+    1.89,
+    1.5,
+    1.34,
+    1.38,
+    2.95,
+    3.11
+  ],
+  "usage": "not returned by this adapter",
+  "totals": {
+    "pass": 7,
+    "fail": 1,
+    "blocked": 2
+  },
+  "cases": [
+    {
+      "case": "A",
+      "question": "Show temperature from 0 to 200 m.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "schema_version": "1.0",
+        "outcome": "provider_unavailable",
+        "proposed_plan": null,
+        "normalized_plan": null,
+        "changes": [],
+        "retained_fields": [],
+        "assumptions": [],
+        "clarification_question": null,
+        "unsupported": [],
+        "errors": [
+          {
+            "code": "provider_error",
+            "field": null,
+            "message": "The natural-language service returned HTTP 503: UNAVAILABLE - This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
+          }
+        ],
+        "provider_message": "The natural-language service returned HTTP 503: UNAVAILABLE - This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+        "reference_date_utc": "2026-09-17T14:16:43.011893+00:00",
+        "revision": null,
+        "question": "Show temperature from 0 to 200 m."
+      },
+      "verdict": "blocked",
+      "reason": "provider unavailable: The natural-language service returned HTTP 503: UNAVAILABLE - This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+      "latency_s": 5.8
+    },
+    {
+      "case": "B",
+      "question": "Show temperature and salinity from 0 to 200 m.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "schema_version": "1.0",
+        "outcome": "provider_unavailable",
+        "proposed_plan": null,
+        "normalized_plan": null,
+        "changes": [],
+        "retained_fields": [],
+        "assumptions": [],
+        "clarification_question": null,
+        "unsupported": [],
+        "errors": [
+          {
+            "code": "provider_error",
+            "field": null,
+            "message": "The natural-language service returned HTTP 503: UNAVAILABLE - This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
+          }
+        ],
+        "provider_message": "The natural-language service returned HTTP 503: UNAVAILABLE - This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+        "reference_date_utc": "2026-09-17T14:16:43.011893+00:00",
+        "revision": null,
+        "question": "Show temperature and salinity from 0 to 200 m."
+      },
+      "verdict": "blocked",
+      "reason": "provider unavailable: The natural-language service returned HTTP 503: UNAVAILABLE - This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+      "latency_s": 9.17
+    },
+    {
+      "case": "C",
+      "question": "Show temperature at exactly 100 m.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "outcome": "proposed_draft",
+        "plan": {
+          "schema_version": "1.0",
+          "time": {
+            "start": "2026-08-18T00:00:00Z",
+            "end": "2026-09-17T23:59:59.999999Z"
+          },
+          "region": {
+            "kind": "named",
+            "name": "argo_cached_subset"
+          },
+          "depth": {
+            "mode": "at_depth",
+            "target_m": 100.0
+          },
+          "variables": [
+            "temp"
+          ],
+          "qc_policy": {
+            "accepted_qc_flags": [
+              1
+            ],
+            "data_modes": [
+              "R",
+              "A",
+              "D"
+            ]
+          },
+          "selection": {
+            "platforms": [],
+            "profile_ids": []
+          },
+          "analyses": [
+            "profile_summary",
+            "depth_profile",
+            "temperature_gradient"
+          ],
+          "outputs": []
+        },
+        "assumptions": [],
+        "clarification": null,
+        "unsupported": [],
+        "validation_outcome": "valid_partial_coverage",
+        "parse_error": null
+      },
+      "verdict": "pass",
+      "reason": "",
+      "latency_s": 1.92
+    },
+    {
+      "case": "D",
+      "question": "Show temperature in June 2019.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "outcome": "proposed_draft",
+        "plan": {
+          "schema_version": "1.0",
+          "time": {
+            "start": "2019-06-01T00:00:00Z",
+            "end": "2019-06-30T23:59:59.999999Z"
+          },
+          "region": {
+            "kind": "named",
+            "name": "argo_cached_subset"
+          },
+          "depth": {
+            "mode": "range",
+            "min_m": 0.0,
+            "max_m": 500.0
+          },
+          "variables": [
+            "temp"
+          ],
+          "qc_policy": {
+            "accepted_qc_flags": [
+              1
+            ],
+            "data_modes": [
+              "R",
+              "A",
+              "D"
+            ]
+          },
+          "selection": {
+            "platforms": [],
+            "profile_ids": []
+          },
+          "analyses": [
+            "profile_summary",
+            "depth_profile",
+            "temperature_gradient"
+          ],
+          "outputs": []
+        },
+        "assumptions": [],
+        "clarification": null,
+        "unsupported": [],
+        "validation_outcome": "valid_no_data",
+        "parse_error": null
+      },
+      "verdict": "pass",
+      "reason": "",
+      "latency_s": 7.67
+    },
+    {
+      "case": "E",
+      "question": "Show me the data.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "outcome": "proposed_draft",
+        "plan": {
+          "schema_version": "1.0",
+          "time": {
+            "start": "2026-08-18T00:00:00Z",
+            "end": "2026-09-17T23:59:59.999999Z"
+          },
+          "region": {
+            "kind": "named",
+            "name": "argo_cached_subset"
+          },
+          "depth": {
+            "mode": "range",
+            "min_m": 0.0,
+            "max_m": 500.0
+          },
+          "variables": [
+            "temp"
+          ],
+          "qc_policy": {
+            "accepted_qc_flags": [
+              1
+            ],
+            "data_modes": [
+              "R",
+              "A",
+              "D"
+            ]
+          },
+          "selection": {
+            "platforms": [],
+            "profile_ids": []
+          },
+          "analyses": [
+            "profile_summary",
+            "depth_profile",
+            "temperature_gradient"
+          ],
+          "outputs": [
+            "evidence_panel"
+          ]
+        },
+        "assumptions": [],
+        "clarification": null,
+        "unsupported": [],
+        "validation_outcome": "valid_partial_coverage",
+        "parse_error": null
+      },
+      "verdict": "fail",
+      "reason": "outcome proposed_draft, wanted a clarification question",
+      "latency_s": 1.89
+    },
+    {
+      "case": "F",
+      "question": "Detect marine heatwaves in this region.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "outcome": "unsupported_request",
+        "plan": null,
+        "assumptions": [],
+        "clarification": null,
+        "unsupported": [
+          {
+            "requested": "marine_heatwave_detection",
+            "kind": "request",
+            "reason": "The planner reported that this part of the question cannot be expressed as a supported query."
+          }
+        ],
+        "validation_outcome": null,
+        "parse_error": null
+      },
+      "verdict": "pass",
+      "reason": "outcome unsupported_request; unsupported=[{'requested': 'marine_heatwave_detection', 'kind': 'request', 'reason': 'The planner reported that this part of the question cannot be expressed as a supported query.'}]",
+      "latency_s": 1.5
+    },
+    {
+      "case": "G",
+      "question": "Include measurements with QC flag 4.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 500.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "outcome": "unsupported_request",
+        "plan": null,
+        "assumptions": [],
+        "clarification": null,
+        "unsupported": [
+          {
+            "requested": "Include measurements with QC flag 4",
+            "kind": "request",
+            "reason": "The planner reported that this part of the question cannot be expressed as a supported query."
+          }
+        ],
+        "validation_outcome": null,
+        "parse_error": null
+      },
+      "verdict": "pass",
+      "reason": "outcome unsupported_request",
+      "latency_s": 1.34
+    },
+    {
+      "case": "H",
+      "question": "Now show only salinity.",
+      "context_summary": {
+        "variables": [
+          "temp"
+        ],
+        "depth": {
+          "mode": "range",
+          "min_m": 0.0,
+          "max_m": 200.0
+        },
+        "time": {
+          "start": "2026-08-18",
+          "end": "2026-09-17"
+        }
+      },
+      "expectation": "see PLAN_CASES",
+      "actual": {
+        "outcome": "proposed_draft",
+        "plan": {
+          "schema_version": "1.0",
+          "time": {
+            "start": "2026-08-18T00:00:00Z",
+            "end": "2026-09-17T23:59:59.999999Z"
+          },
+          "region": {
+            "kind": "named",
+            "name": "argo_cached_subset"
+          },
+          "depth": {
+            "mode": "range",
+            "min_m": 0.0,
+            "max_m": 200.0
+          },
+          "variables": [
+            "psal"
+          ],
+          "qc_policy": {
+            "accepted_qc_flags": [
+              1
+            ],
+            "data_modes": [
+              "R",
+              "A",
+              "D"
+            ]
+          },
+          "selection": {
+            "platforms": [],
+            "profile_ids": []
+          },
+          "analyses": [
+            "profile_summary",
+            "depth_profile",
+            "salinity_gradient"
+          ],
+          "outputs": []
+        },
+        "assumptions": [],
+        "clarification": null,
+        "unsupported": [],
+        "validation_outcome": "valid_partial_coverage",
+        "parse_error": null
+      },
+      "verdict": "pass",
+      "reason": "",
+      "latency_s": 1.38
+    },
+    {
+      "case": "I",
+      "question": "explain the executed result",
+      "context_summary": null,
+      "expectation": "every number traceable to a backend fact id; no unsupported claims",
+      "actual": {
+        "outcome": "explained",
+        "source": "model",
+        "sentences": [
+          "This result covers 40 profiles from 12 floats, measured between 2026-08-18T22:42:20 UTC and 2026-09-17T09:03:20 UTC.",
+          "The measurements come from 40 distinct positions.",
+          "Temperature ranges from 12.29 degree_Celsius to 27.98 degree_Celsius across the returned levels.",
+          "Temperature was measured between 0 m and 497.2 m depth.",
+          "The steepest fall in temperature with depth is -0.579 degrees Celsius per metre (ITS-90), between 45.22 m and 47.11 m.",
+          "Levels are typically 1.99 m apart, with the largest gap 49.9 m."
+        ],
+        "used_fact_ids": [
+          "profiles.count",
+          "profiles.float_count",
+          "time.observed_start",
+          "time.observed_end",
+          "region.sampled_location_count",
+          "variable.temp.value_min",
+          "variable.temp.value_max",
+          "variable.temp.depth_min_m",
+          "variable.temp.depth_max_m",
+          "gradient.temp.strongest_cooling.value",
+          "gradient.temp.strongest_cooling.upper_depth_m",
+          "gradient.temp.strongest_cooling.lower_depth_m",
+          "depth.median_level_spacing_m",
+          "depth.max_level_gap_m"
+        ],
+        "rejected": []
+      },
+      "verdict": "pass",
+      "reason": "",
+      "latency_s": 2.95,
+      "profile_checked": "1901897_302_A"
+    },
+    {
+      "case": "J",
+      "question": "explain a comparison between two profiles",
+      "context_summary": null,
+      "expectation": "every number traceable to a backend fact id; no unsupported claims",
+      "actual": {
+        "outcome": "explained",
+        "source": "model",
+        "sentences": [
+          "This result covers 40 profiles from 12 floats, measured between 2026-08-18T22:42:20 UTC and 2026-09-17T09:03:20 UTC.",
+          "The measurements come from 40 distinct positions.",
+          "Temperature ranges from 12.29 degree_Celsius to 27.98 degree_Celsius across the returned levels.",
+          "Temperature was measured between 0 m and 497.2 m depth.",
+          "The steepest fall in temperature with depth is -0.579 degrees Celsius per metre (ITS-90), between 45.22 m and 47.11 m.",
+          "Levels are typically 1.99 m apart, with the largest gap 49.9 m."
+        ],
+        "used_fact_ids": [
+          "profiles.count",
+          "profiles.float_count",
+          "time.observed_start",
+          "time.observed_end",
+          "region.sampled_location_count",
+          "variable.temp.value_min",
+          "variable.temp.value_max",
+          "variable.temp.depth_min_m",
+          "variable.temp.depth_max_m",
+          "gradient.temp.strongest_cooling.value",
+          "gradient.temp.strongest_cooling.upper_depth_m",
+          "gradient.temp.strongest_cooling.lower_depth_m",
+          "depth.median_level_spacing_m",
+          "depth.max_level_gap_m"
+        ],
+        "rejected": []
+      },
+      "verdict": "pass",
+      "reason": "no comparison claimed, as the contract requires",
+      "latency_s": 3.11,
+      "profile_checked": "1901897_302_A"
+    }
+  ]
+}
