@@ -53,12 +53,39 @@ def test_the_estimated_depth_is_labelled_derived_and_the_endpoints_measured():
     assert "top and bottom" in candidate["midpoint_note"]
 
 
-def test_the_method_and_its_policies_travel_with_the_result():
+def test_the_method_and_its_thresholds_travel_with_the_result():
     result = est(SHARP_DEPTHS, SHARP_TEMPS)
     assert result["method_version"]
     assert result["policy"]["min_gradient_c_per_m"] == MIN_GRADIENT_C_PER_M
-    assert "application policies" in result["policy"]["note"]
-    assert "Jiang" in result["policy"]["note"]
+    assert "application threshold" in result["policy"]["note"]
+
+
+def test_no_threshold_is_presented_as_a_scientific_standard():
+    """The 0.2 C/m minimum has no cited source; only the definition has one.
+
+    An earlier version of this module attributed it to Jiang et al. (2017) via
+    Romero et al. (2023). Romero et al. cite Jiang et al. for a classification
+    of thermocline *form*, and their only 0.2 is a temperature difference used
+    for mixed-layer depth. The claim is gone and must not return.
+    """
+    note = est(SHARP_DEPTHS, SHARP_TEMPS)["policy"]["note"]
+    assert "Jiang" not in note
+    assert "not a scientific standard" in note
+    # The three quantities are kept apart, not conflated.
+    assert "local interval gradient" in note
+    assert "temperature difference" in note
+    assert "mixed-layer depth" in note
+    assert "not been independently validated" in note
+    # The one thing that does come from the literature is the definition.
+    assert "maximum vertical temperature gradient" in note
+
+
+def test_a_weak_profile_is_refused_against_our_threshold_not_a_standard():
+    depths = list(range(0, 110, 10))
+    temps = [25.0 - 0.01 * i for i in range(len(depths))]
+    reason = est(depths, temps)["reason"]
+    assert "this prototype's application threshold" in reason
+    assert "standard" not in reason
 
 
 # --- profiles with no qualifying candidate ------------------------------------
@@ -83,7 +110,7 @@ def test_weak_cooling_below_the_standard_is_refused():
     temps = [25.0 - 0.01 * i for i in range(len(depths))]
     result = est(depths, temps)
     assert result["status"] == "no_qualifying_candidate"
-    assert "below the 0.2" in result["reason"]
+    assert "below this prototype's application threshold of 0.2" in result["reason"]
 
 
 def test_a_warming_only_profile_is_refused_and_the_limitation_explained():

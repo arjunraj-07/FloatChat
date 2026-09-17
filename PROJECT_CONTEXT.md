@@ -1582,8 +1582,8 @@ deep water below", in which temperature "decreases rapidly" with depth
 *Improving the thermocline calculation over the global ocean*, Ocean Sci. **19**,
 887-901, <https://doi.org/10.5194/os-19-887-2023>, record that "the thermocline
 depth is often defined as the depth of the maximum vertical temperature
-gradient" (attributed to Fiedler, 2010) and cite Jiang et al. (2017) filtering
-gradient points against a thermocline standard of **> 0.2 °C m⁻¹**.
+gradient", attributing that formulation to **Fiedler (2010)**. That definition
+is the **only** thing this implementation takes from the literature.
 
 This implements the *maximum-gradient* definition only, as
 `strongest-eligible-cooling-interval` v1.0. It deliberately does **not**
@@ -1600,18 +1600,42 @@ representative depth is the interval **midpoint** - a derived value, labelled
 are **not** called the thermocline's top and bottom: a first difference between
 two levels locates where a profile steepens, not the boundaries of a layer.
 
-**Thresholds, and which are ours.** Only `MIN_GRADIENT_C_PER_M = 0.2` comes from
-a citation, and even there it is applied to a first difference between adjacent
-accepted levels rather than the quantity those authors filtered - an adaptation,
-stated as one. Everything else is an **application policy** for this prototype,
+**Thresholds: every one of them is ours.** *Corrected after implementation; the
+claim below replaces an earlier one in this section.* `MIN_GRADIENT_C_PER_M =
+0.2` was first documented and coded as a published thermocline standard of
+0.2 °C m⁻¹ attributed to Jiang et al. (2017) via Romero et al. (2023).
+**That attribution was false.** Re-reading the paper: Romero et al. cite Jiang
+et al. (2017) for a machine-learning *classification of thermocline form* -
+"positive, inverse or mixed thermoclines as well as multi-thermoclines" - and
+say nothing about a gradient threshold. The only 0.2 anywhere in that paper is
+a **temperature difference**: "the depth where the potential temperature is
+0.2 ∘C higher (or lower) than the reference temperature at 10 m", which is the
+de Boyer Montégut et al. (2004) **mixed-layer-depth** criterion - a different
+quantity, in °C rather than °C m⁻¹, answering a different question.
+
+Three quantities are easy to conflate and are now kept apart in the code, the
+result payload, the interface and here:
+
+| Quantity | Units | What it is | Used here? |
+|---|---|---|---|
+| Temperature **difference** | °C | a level against a reference level, e.g. 0.2 °C from 10 m for MLD | no |
+| **Local interval gradient** | °C m⁻¹ | first difference between two adjacent accepted levels; magnitude depends on sampling spacing | **yes - this is what is thresholded** |
+| **Layer-average gradient** | °C m⁻¹ | temperature drop divided by an identified layer's thickness; the usual sense of "thermocline strength" | no - it needs layer boundaries this method does not determine |
+
+So **no number in this estimator comes from a citation.** Each is *this
+prototype's application threshold*, and none has been **independently validated
+for this estimator or this dataset** - a sentence now shown in the expanded
+details in the interface, not only recorded here. The numerical value is
+**unchanged at 0.2**: moving it would be tuning for detection counts, not
+correcting a provenance error, so the counts below still stand. The thresholds,
 reported with every result so a reader can disagree: at least 5 accepted levels
 and 3 eligible intervals (`insufficient_evidence` below that); the candidate at
 least **2x** the median cooling of the rest of the profile, so a uniform slope is
 not reported as a layer; at least **2** touching cooling intervals, so an
 isolated sharp step reads as local structure; and a rival within **0.9** of the
 best magnitude makes the answer `ambiguous` rather than decisive. None of these
-is a universal oceanographic standard, and none was moved to improve the counts
-below.
+is a universal oceanographic standard or is presented as one, and none was
+moved to improve the counts below.
 
 **Cooling only.** An absolute gradient would let a warming interval be reported
 as a thermocline. Temperature inversions are real structure - common beneath
@@ -1670,12 +1694,12 @@ depth range, 0-498 m; only the requested analyses and variables differ.
 | Request | Bytes | MB | MiB |
 |---|---|---|---|
 | temperature, temperature gradient | 4,542,445 | 4.54 | 4.33 |
-| … **+ thermocline estimation** | 4,610,193 | 4.61 | 4.40 |
+| … **+ thermocline estimation** | 4,627,762 | 4.63 | 4.41 |
 | temperature + salinity, both gradients | 8,543,918 | 8.54 | 8.15 |
-| … **+ thermocline estimation** | 8,611,666 | 8.61 | 8.21 |
+| … **+ thermocline estimation** | 8,629,235 | 8.63 | 8.23 |
 
-The thermocline rows cost **+66.2 KiB** either way - 1.49% of the
-temperature-only request, 0.79% of the both-variable one - because one row
+The thermocline rows cost **+83.3 KiB** either way - 1.88% of the
+temperature-only request, 1.00% of the both-variable one - because one row
 carries two endpoints and the policy settings, never a profile array. Adding
 salinity and its gradient costs **+4.00 MB (88%)**, which dwarfs it.
 
@@ -1689,14 +1713,15 @@ is the likeliest origin, but that is an inference, not a reconciliation. The
 figure to rely on is the table above. It also corrects a related claim: the
 both-variable, both-gradient request on **this** snapshot is **8.54 MB**, not
 the 3.24 MB recorded for the 2024 snapshot in §5m nor the 4.24 MB of §5q.
-**None of that growth is attributable to this milestone**, which adds 66.2 KiB.
+**None of that growth is attributable to this milestone**, which adds 83.3 KiB.
 
 **Interface.** A compact, expandable *Thermocline estimate* section sits beside
 the existing per-profile analyses, selected by profile id so switching profiles
 can never leave a stale estimate under another one. It shows the estimated depth
 marked *(derived, not a measurement)*, the measured levels that support it with
-the fall and the signed gradient, and an expandable *Method and limits* with the
-citations and the application policies. When there is no candidate it shows the
+the fall and the signed gradient, and an expandable *Method and limits*, which separates the
+one cited definition from this prototype's own thresholds and states that those
+thresholds are unvalidated for this estimator and dataset. When there is no candidate it shows the
 backend's reason and nothing else - no fabricated depth, and no confidence
 percentage anywhere. On the temperature chart the supporting interval is a
 translucent band with a dashed midpoint line, both drawn **below** the traces so
@@ -1708,7 +1733,7 @@ are unchanged, as are the comparison and PNG-export controls.
 no explanation template asks it to derive, adjust or narrate a thermocline
 depth.
 
-**Verification.** Backend **563 passed** (536 -> 563; 27 new in
+**Verification.** Backend **565 passed** (536 -> 565; 29 new in
 `tests/test_thermocline.py`, plus three existing capability tests updated
 because `thermocline_estimation` is now implemented - one now expects a draft
 where it expected `unsupported_request`, and two moved to analyses that are
@@ -1720,7 +1745,7 @@ strong transitions and a tie; too few levels; rejected levels and a gap wider
 than policy; duplicate and near-identical depths; non-finite values; reversed
 input order; a clipped range and a boundary candidate; and a salinity series
 offered by mistake. Frontend **229 passed** (226 -> 229), `tsc --noEmit` and
-lint clean. Browser suite: **184/184**, desktop and phone, with fixture AI replies
+lint clean. Browser suite: **185/185**, desktop and phone, with fixture AI replies
 and no model call, including captures of all four outcomes - a supported
 estimate with its chart annotation, an ambiguous one, no qualifying candidate
 and insufficient evidence - plus the expanded method details and a phone view.
@@ -1765,7 +1790,10 @@ line and its "(derived)" label carry the annotation, and the band is not
 widened to look impressive. A first difference between two levels is not a layer thickness,
 and the midpoint is not a measured depth. Sparse sampling sets the resolution:
 where levels are 20 m apart, so is the estimate. Inversions are outside the
-method. The 0.2 °C m⁻¹ criterion was published for a different quantity. The
+method. The 0.2 °C m⁻¹ minimum is
+this prototype's own, unvalidated for this estimator and dataset, and it is not
+a published criterion - nor is it the 0.2 °C *difference* used for mixed-layer
+depth. The
 snapshot reaches about 500 m, so nothing deeper can be seen. And `estimated` is
 not a detection: it means the strongest cooling interval here met these criteria,
 in this depth range.
@@ -1926,12 +1954,12 @@ cd frontend && npm run build
 # Thermocline counts and payload on the fixed snapshot, no threshold changes:
 #   40 profiles - 20 estimated, 9 ambiguous, 11 no qualifying candidate
 #   execution response, temperature only, 0-498 m, uncompressed body bytes:
-#   4,542,445 B -> 4,610,193 B (+66.2 KiB, 1.49%); with salinity and its
-#   gradient as well, 8,543,918 B -> 8,611,666 B (+66.2 KiB, 0.79%)
+#   4,542,445 B -> 4,627,762 B (+83.3 KiB, 1.88%); with salinity and its
+#   gradient as well, 8,543,918 B -> 8,629,235 B (+83.3 KiB, 1.00%)
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (184/184; browser zone
+# Headless-Chrome UI checks against the running app (185/185; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts and explanations in that run are fixture replies served by request
@@ -1981,8 +2009,8 @@ Other sensible steps, in order:
    floats" note and `profileHistory.ts` all went. If it ever returns it needs
    the float's full archive, and must still be labelled as schematic
    connections, never as underwater paths.
-6. **Shrink the execution response.** The opening query returns about **4.61
-   MB** and the both-variable, both-gradient query about **8.61 MB** (§5s's
+6. **Shrink the execution response.** The opening query returns about **4.63
+   MB** and the both-variable, both-gradient query about **8.63 MB** (§5s's
    matched table), because every observation and every gradient interval
    travels in one payload. It is workable locally and
    nothing depends on it being smaller today, but it scales with the result

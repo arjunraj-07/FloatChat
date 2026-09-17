@@ -11,9 +11,9 @@ water at the ocean's surface and cooler deep water below", in which temperature
 Romero et al. (2023), *Improving the thermocline calculation over the global
 ocean*, Ocean Sci. 19, 887-901, https://doi.org/10.5194/os-19-887-2023, record
 that "the thermocline depth is often defined as the depth of the maximum
-vertical temperature gradient" (attributing the formulation to Fiedler, 2010),
-and cite Jiang et al. (2017) filtering gradient points that meet a thermocline
-standard of **> 0.2 °C m⁻¹**.
+vertical temperature gradient", attributing that formulation to Fiedler (2010).
+That definition - and only that definition - is what this module takes from the
+literature.
 
 This module implements the *maximum-gradient* definition only, over the
 intervals the existing gradient engine already accepted. It deliberately does
@@ -33,14 +33,35 @@ so. The endpoints are not called the thermocline's top and bottom: a first
 difference between two levels locates where the profile steepens, not the
 boundaries of a layer.
 
-Thresholds
-----------
+Thresholds: every one of them is ours
+-------------------------------------
 
-``MIN_GRADIENT_C_PER_M`` is taken from the published standard cited above. Every
-other number here is an **application policy** for this prototype, chosen to
-refuse thin evidence rather than to flatter this snapshot. None of them is a
-universal oceanographic standard, and they are reported with the result so a
-reader can disagree with them.
+**Correction (this supersedes an earlier claim in this file).** The
+0.2 value in ``MIN_GRADIENT_C_PER_M`` was previously described here as a
+published thermocline standard of 0.2 °C m⁻¹ attributed to Jiang et al. (2017)
+via Romero et al. (2023). That attribution was wrong and has been removed.
+Romero et al. cite Jiang et al. (2017) for a machine-learning *classification
+of thermocline form* - positive, inverse, mixed and multi-thermoclines - not
+for any gradient threshold. The only 0.2 in that paper is a **temperature
+difference** of 0.2 °C from a reference value near 10 m, which is the de Boyer
+Montégut et al. (2004) **mixed-layer-depth** criterion, a different quantity
+(°C, not °C m⁻¹) answering a different question.
+
+Three quantities are easy to conflate, so they are kept apart here:
+
+* a **temperature difference** (°C) between a level and a reference level -
+  what the 0.2 °C MLD criterion uses, and dimensionally not a gradient;
+* a **local interval gradient** (°C m⁻¹), the first difference between two
+  adjacent accepted levels - what this module thresholds. Its magnitude
+  depends on the sampling spacing of the profile;
+* a **layer-average gradient** (°C m⁻¹), a temperature drop divided by the
+  thickness of an identified layer - what "thermocline strength" usually
+  means. It needs layer boundaries, which this module does not determine.
+
+So **no number in this module comes from a citation.** Each is *this
+prototype's application threshold*, chosen to refuse thin evidence rather than
+to flatter this snapshot, reported with every result so a reader can disagree.
+None has been independently validated for this estimator or this dataset.
 
 Only cooling with depth is considered. Temperature inversions - warming with
 depth, common beneath barrier layers and at high latitudes - are real structure,
@@ -57,13 +78,15 @@ from typing import Optional
 METHOD = "strongest-eligible-cooling-interval"
 METHOD_VERSION = "1.0"
 
-#: Published: Jiang et al. (2017), cited by Romero et al. (2023) as a
-#: thermocline standard. Applied here to a first difference between adjacent
-#: accepted levels, which is an adaptation of that criterion, not the same
-#: quantity the authors filtered.
+#: This prototype's application threshold, not a scientific standard: no cited
+#: source states a 0.2 °C m⁻¹ thermocline gradient criterion (see the module
+#: docstring). Applied to the first difference between two adjacent accepted
+#: levels. Unchanged from the value first implemented, because moving it to
+#: improve detection counts would be tuning, not correction.
 MIN_GRADIENT_C_PER_M = 0.2
 
-#: Application policies for this prototype.
+#: Application thresholds for this prototype, on the same footing as the one
+#: above.
 MIN_ACCEPTED_SAMPLES = 5
 MIN_ELIGIBLE_INTERVALS = 3
 #: The candidate must stand out from the profile's ordinary cooling, or a
@@ -77,11 +100,18 @@ MIN_CONTIGUOUS_COOLING = 2
 AMBIGUITY_RATIO = 0.9
 
 POLICY_NOTE = (
-    "The minimum gradient is the 0.2 degrees Celsius per metre thermocline "
-    "standard of Jiang et al. (2017) as cited by Romero et al. (2023), applied "
-    "here to first differences between adjacent accepted levels. The support, "
-    "prominence, contiguity and ambiguity settings are application policies "
-    "for this prototype, not published thresholds."
+    "Every threshold here is this prototype's application threshold, not a "
+    "scientific standard: the minimum gradient, support, prominence, "
+    "contiguity and ambiguity settings. The minimum of 0.2 degrees Celsius "
+    "per metre is applied to the first difference between two adjacent "
+    "accepted levels, which is a local interval gradient; it is not the 0.2 "
+    "degrees Celsius temperature difference used to define a mixed-layer "
+    "depth, and no cited source states a 0.2 degrees Celsius per metre "
+    "thermocline criterion. Only the definition of thermocline depth as the "
+    "depth of the maximum vertical temperature gradient is taken from the "
+    "literature (Fiedler 2010, as recorded by Romero et al. 2023). These "
+    "thresholds have not been independently validated for this estimator or "
+    "this dataset."
 )
 
 MIDPOINT_NOTE = (
@@ -218,9 +248,9 @@ def estimate(series: Optional[dict], *, analysed_range_m=None) -> dict:
         return {**base, "status": "no_qualifying_candidate",
                 "reason": _refusal(
                     f"The strongest cooling is {strongest:.3f} degrees Celsius "
-                    f"per metre, below the {MIN_GRADIENT_C_PER_M} standard used "
-                    "here, so the profile varies too weakly to call a "
-                    "transition layer."
+                    f"per metre, below this prototype's application "
+                    f"threshold of {MIN_GRADIENT_C_PER_M}, so the profile "
+                    "varies too weakly to call a transition layer."
                 ),
                 "strongest_cooling_c_per_m": -strongest,
                 "eligible_interval_count": len(intervals)}
