@@ -1333,6 +1333,94 @@ model. Only fixture replies were exercised, so nothing here is evidence that a
 live model chooses good sentences - only that whatever it chooses is
 constrained, and that unsupported choices are rejected.
 
+## 5p. Full-width Explore, automatic results and a chat assistant (Verified)
+
+Changes collected from a walkthrough of the interface. Scientific calculation,
+authentication, the Gemini configuration and grounded explanations are
+untouched; the backend has no change at all this milestone.
+
+- **Explore is one scrolling page.** The map or globe fills the first screen
+  beneath the navigation (measured at 656 px of 768), and the measurements,
+  chart and scientific details follow underneath in ordinary page flow. The
+  side-by-side grid that gave each pane its own scrollbar is gone. Filters stay
+  in a drawer; selecting a profile changes the panels below and nothing else.
+  Leaflet already invalidated its size on container resize, and the R3F canvases
+  size to their parent, so the scenes, marker selection, camera controls, depth
+  selection and the no-WebGL fallback all survived the change.
+- **Results are automatic.** "Show results" and "Use cached data" are removed.
+  The opening query is derived from the coverage the backend reports -
+  `defaultFormFor` - and runs on load. A valid filter change re-runs it after
+  the existing validation debounce, at most once per revision, and the reducer
+  drops replies for superseded revisions. Selecting a marker, moving the globe
+  and switching sections do not touch the revision, so none of them re-executes.
+  Loading, invalid, unavailable and empty are four distinct states, and results
+  from a previous selection stay labelled as such.
+  The opening query keeps the **named** region, so the summary reads "Arabian
+  Sea sample" rather than a box of degrees, and asks for temperature only: the
+  both-variable, both-gradient request is the 3.24 MB payload (SS8.6), which is
+  a poor default for something that now runs on every load.
+- **Map and globe simplified.** Profile history, its "2 of 6 floats" note and
+  `profileHistory.ts` are removed; "Focus on float" survives, now framed from
+  the result's own profiles. Three repeated coverage paragraphs became one
+  scope line with its degrees, and the Natural Earth attribution is kept. In the
+  depth scene the actual-metre labels and the exaggeration factor stay on
+  screen; the longer method explanation moved behind "How this is drawn".
+- **The assistant is a conversation.** A scrollable thread with a composer and
+  Send, starter questions before the first message, and no numbered workflow.
+  Proposals arrive as compact cards with one explicit **Apply**; explanations
+  arrive as messages with their evidence behind a disclosure. The planner and
+  explanation services are the existing ones, and both still need an account.
+  The thread and the half-typed message both live in the explorer, so switching
+  sections keeps them - and the composer says plainly that the conversation is
+  not saved to an account, because it is not.
+- **The two reported layout defects.** "Changes with depth" was clipped by the
+  fixed-height card that held it; measurements now grow with the page, and a
+  geometry check proves the expanded content sits inside its card at zoom 1.
+  The Compare legend overlapped because two long names shared Plotly's
+  horizontal legend; the plot legend is off and identity comes from the A/B
+  selector row, checked for non-overlap at 1366 px and at 420 px.
+- **About** opens with what FloatChat does, what Argo floats measure and where
+  the data comes from, in short paragraphs, with processing and QC behind
+  disclosures. Counts and dates stay dynamic, and measurements, derived values
+  and long-term reference averages are still kept apart.
+
+Verification: backend **501 passed** - no Python was touched, confirmed by
+`git status` before the run. Frontend **224 passed** (232 -> 224: twelve
+profile-history tests and seven assistant-stage tests went with the features
+they described; eleven new cover the conversation and `draft:apply`). tsc, lint
+and `next build` exit 0, the build run with the frontend process stopped and
+port 3000 confirmed empty. Headless Chrome **170/170** with no page errors.
+Model replies are fixtures served by request interception, each endpoint proven
+with its own probe; **no model was called.**
+
+Five things were found by running it:
+
+1. **Every "before results" check was invalidated.** With results loading
+   automatically there is no empty Compare, no dataset-overview globe and no
+   getting-started panel. Four checks asserted states that can no longer occur,
+   and one clicked a button that no longer renders, ending the run early.
+2. **The conversation broke `querySelector`.** A thread keeps its earlier cards,
+   so checks reading `[data-testid=chat-proposal]` got the opening proposal
+   rather than the newest reply, and `waitFor` matched a card already on screen.
+   Six checks now read the last match and wait for the count to rise.
+3. **The composer lost its text on a section switch.** It was local component
+   state, and the assistant section unmounts when another is shown. Lifted to
+   the explorer beside the conversation, which is what the milestone asked for.
+4. **`setInput` could not drive a textarea.** It took the value setter from
+   `HTMLInputElement.prototype`; on the new composer that throws "Illegal
+   invocation". It now picks the prototype from the element.
+5. **A screenshot showed the wrong thing, and fixing it broke the run.** The
+   measurements shot was byte-identical to the map shot. Scrolling just before
+   it left the page scrolled, and every later coordinate-based interaction -
+   marker clicks, globe drag, scroll-zoom - dispatched where the map no longer
+   was, costing six checks and a crash. The capture moved to the point the run
+   already scrolls there, and is now a distinct image.
+
+**Not done, and not claimed:** no first-time user testing. The chart regression
+this layout introduced (the chart collapsed to 211 px once it had no parent
+height) was fixed by giving the chart its own minimum, **not** by lowering the
+250 px threshold that caught it.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -1447,7 +1535,7 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 501 with grounded result explanations; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 232 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 224 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -1477,7 +1565,7 @@ cd frontend && npm run build
 
 # Frontend lint — exit 0
 
-# Headless-Chrome UI checks against the running app (172/172; browser zone
+# Headless-Chrome UI checks against the running app (170/170; browser zone
 # Asia/Kolkata by default, FLOATCHAT_TZ overrides):
 #   node frontend/scripts/verify-ui.mjs <screenshot-dir>
 # AI drafts and explanations in that run are fixture replies served by request
@@ -1503,22 +1591,31 @@ so running it never touches real local accounts.
 ## 8. Next milestone
 
 Natural-language drafting is **done** (§5c) but inert until a provider is
-configured. Sensible next steps, in order:
+configured.
+
+**Named next task: recent-data ingestion and additional floats.** §5p stayed
+on the current cached subset by instruction; bringing in more recent
+observations, and more floats, is the next piece of work.
+
+Other sensible steps, in order:
 
 1. **Configure a provider and evaluate it.** Point `FLOATCHAT_NL_*` at a real
    service and build a genuine evaluation — real calls, human labels — against
    the labelled examples in `tests/test_nl_examples.py`. Today those are
    contract fixtures and say nothing about model quality.
-2. **Explain returned results**, once §5c is trusted. The model may describe
-   numbers `floatchat_core` computed; it must still never produce one.
+2. **Evaluate the explanations against a real model.** Grounded explanations
+   shipped in §5o, but only fixture replies have ever been exercised. Nothing
+   yet shows that a live model chooses *good* sentences - only that whatever
+   it chooses is constrained, and that unsupported choices are rejected.
 3. **Populate the WOA cache** when NCEI recovers, with the manual script.
    Isolate the remote read from the API process before re-enabling it.
 4. **Per-section URLs.** The marine-atlas visual design is applied (§5j),
    but the section is still local state: Back and reload do not return to
    the section you were in, and no workspace can be linked to directly.
-5. **Profile history** (§5i) is limited to the returned result. Joining a
-   float's locations across its full archive would need that archive, and
-   should stay labelled as schematic connections, never as underwater paths.
+5. **Profile history was removed** in §5p - the globe overlay, its "2 of 6
+   floats" note and `profileHistory.ts` all went. If it ever returns it needs
+   the float's full archive, and must still be labelled as schematic
+   connections, never as underwater paths.
 6. **Shrink the execution response.** The full cached query with both gradient
    analyses returns about **3.24 MB** (§5m), because every observation and
    every gradient interval travels in one payload. It is workable locally and
