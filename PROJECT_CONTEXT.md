@@ -1421,6 +1421,80 @@ this layout introduced (the chart collapsed to 211 px once it had no parent
 height) was fixed by giving the chart its own minimum, **not** by lowering the
 250 px threshold that caught it.
 
+## 5q. Recent observations, and a dataset that can be refreshed (Verified)
+
+The served dataset is now a recent extract, retrieved once from the same
+Ifremer ERDDAP path the January 2024 snapshot came from. That original extract
+is untouched and is the fallback.
+
+- **What is served.** `scripts/refresh_argo.ps1` downloads the last 30 UTC days
+  for 60-65 E, 15-20 N, pressures 0-500, processes it with the *same* QC policy,
+  validates it, and only then points `snapshots/active.json` at it. The first
+  run retrieved **40 profiles from 12 floats, 7,171 levels, observed
+  2026-08-18 22:42 to 2026-09-17 09:03 UTC**. "Recent" is the observation date;
+  nothing streams, and the interface says so.
+- **Safe and repeatable.** Retrieval happens in the script, never in a request
+  handler: opening the site or moving a filter downloads nothing. Bounded
+  timeout (600 s) and three retries; the response is written to a `.part` file
+  and moved into place. A snapshot counts as complete only when all three files
+  exist, and `write_active_id` refuses to activate an incomplete one, so a
+  failed or half-finished download leaves the working dataset serving. The
+  resolution order is `FLOATCHAT_DATASET_DIR`, then the active snapshot, then
+  the original extract, and the reason for a fallback is reported rather than
+  guessed at.
+- **One snapshot, one description.** `/api/coverage` reports the snapshot id,
+  whether it is the fallback, the requested window and region, the retrieval
+  time and any truncation, and its counts are read from the same tables the
+  queries run against.
+- **Scientific behaviour is unchanged.** The refresh calls
+  `records_from_frame`, extracted from the original script so both ingestions
+  apply one policy rather than a copy: per-variable raw/adjusted selection,
+  QC=1 only, `-gsw.z_from_p` for depth, and temperature kept when salinity is
+  missing (126 such levels here). Climatology stays cache-only.
+- **Interface.** The opening query is derived from the active coverage, so it
+  follows the dataset. A fallback is labelled in Explore and explained in
+  About, which gains a "Source and refresh" section naming the snapshot,
+  bounds, window, retrieval time and the refresh command. Switching datasets
+  clears the selection, comparison and conversation and re-derives the default;
+  clearing a proposal is not accepting it, and no model is called.
+
+Verification: backend **522 passed** (501 -> 522; 21 new for snapshot
+resolution, activation refusal, validation and coverage consistency). Frontend
+**226 passed**. tsc, lint and `next build` exit 0, built with the frontend
+listener stopped and port 3000 confirmed empty. Headless Chrome **170/170**
+with no page errors, against the recent snapshot. One bounded real retrieval
+was performed; four sampled levels were checked against the downloaded NetCDF
+and agreed exactly on temperature and on the computed depth.
+
+Ordinary unit tests are pinned to the original extract through
+`FLOATCHAT_DATASET_DIR`, because a refreshed snapshot changes with every
+refresh and tests pinned to it would describe today's download rather than the
+behaviour under test. No network is used by them.
+
+Three things were found by running it:
+
+1. **A superseded execution stranded the loading state.** `execution:result`
+   discarded a reply for an old revision but left `executing` true, so
+   `canExecute` stayed false and automatic results stopped for the rest of the
+   session. The larger dataset exposed it: the first run was still in flight
+   when a proposal was applied. Fixed in the reducer and pinned by a test.
+2. **A check was confounded by correct behaviour.** "Panning kept" compared the
+   map across a round trip during which a different profile had been selected
+   on the globe; panning to keep the open profile visible is right, and with
+   the wider spread it now happens. The check measures navigation alone.
+3. **Reduced motion could not demand zero frames.** The opening query repaints
+   the scene a few times as it lands. Continuous animation would add about 90
+   frames over the window; the check now allows at most five, which still
+   separates "stopped" from "animating".
+
+**Payload note.** The full cached query with gradients returns about **4.24 MB
+as an execution response** for this snapshot, up from 3.24 MB for the 2024 one.
+That is a response size, not a request. SS8.6 still applies.
+
+**Not done, and not claimed:** no first-time user testing; the region was not
+expanded, because the original box returned enough coverage; and the extract is
+a bounded 30-day window, not complete regional coverage.
+
 ## 6. Known limitations
 
 - **WOA reference values: one cached column only.** NCEI returned HTTP 503
@@ -1532,10 +1606,11 @@ venv/Scripts/python.exe scripts/data_feasibility/process_argo_data.py
 # 386 with the cache-only launcher tests, 387 with search_region,
 # 424 with accounts and the access boundary,
 # 455 with per-profile gradients,
-# 501 with grounded result explanations; nothing regressed)
+# 501 with grounded result explanations,
+# 522 with refreshable dataset snapshots; nothing regressed)
 venv/Scripts/python.exe -m pytest
 
-# Frontend interaction tests — 224 passed, run under three time zones. Uses Node's built-in runner and
+# Frontend interaction tests — 226 passed, run under three time zones. Uses Node's built-in runner and
 # native TypeScript stripping; no test framework was added to the project.
 cd frontend && npm test
 
@@ -1593,9 +1668,8 @@ so running it never touches real local accounts.
 Natural-language drafting is **done** (§5c) but inert until a provider is
 configured.
 
-**Named next task: recent-data ingestion and additional floats.** §5p stayed
-on the current cached subset by instruction; bringing in more recent
-observations, and more floats, is the next piece of work.
+Recent-data ingestion landed in §5q: the served dataset is a refreshable
+recent extract, with the January 2024 snapshot kept as the fallback.
 
 Other sensible steps, in order:
 

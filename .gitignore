@@ -36,3 +36,8 @@ node_modules/
 # sessions). Never committed: it holds real credentials for whoever has
 # registered on this machine. Path is configurable via FLOATCHAT_AUTH_DB.
 data/accounts/
+
+# Refreshed Argo snapshots are data, not source: each is downloaded
+# by scripts/refresh_argo.ps1 and reproducible from its recorded
+# provenance. The original January 2024 extract stays tracked.
+scripts/data_feasibility/data/snapshots/

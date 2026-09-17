@@ -11,6 +11,17 @@ os.environ.setdefault("FLOATCHAT_WOA_ALLOW_NETWORK", "0")
 # the suite never reads, writes or deletes real local accounts. This must be
 # set before `api.main` is imported, because the application prepares the
 # account store on import.
+# The ordinary suite tests the original January 2024 extract, not whatever
+# snapshot happens to be active. A refreshed snapshot changes every time it is
+# refreshed, so pinning the tests to it would make them describe today's
+# download rather than the behaviour under test. The snapshot machinery itself
+# is covered in `test_snapshots.py`, which builds its own fixtures.
+os.environ.setdefault(
+    "FLOATCHAT_DATASET_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "scripts", "data_feasibility", "data", "processed"),
+)
+
 _TEST_ACCOUNT_DIR = tempfile.mkdtemp(prefix="floatchat-test-accounts-")
 os.environ["FLOATCHAT_AUTH_DB"] = os.path.join(
     _TEST_ACCOUNT_DIR, "accounts.sqlite3")
@@ -24,6 +35,12 @@ if REPO_ROOT not in sys.path:
 API_DIR = os.path.join(REPO_ROOT, "api")
 if API_DIR not in sys.path:
     sys.path.insert(0, API_DIR)
+
+# The ingestion and refresh scripts are exercised directly too, so the same
+# code that builds a snapshot is the code under test.
+SCRIPT_DIR = os.path.join(REPO_ROOT, "scripts", "data_feasibility")
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 
 def unique_email(prefix: str = "tester") -> str:

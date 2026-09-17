@@ -31,6 +31,7 @@ from auth_routes import (  # noqa: E402
 )
 from plan_routes import build_plan_router  # noqa: E402
 
+from floatchat_core import snapshots  # noqa: E402
 from floatchat_core.plan_validation import DatasetIndex  # noqa: E402
 from floatchat_core.qc import ARGO_VARIABLE_DEFINITIONS  # noqa: E402
 from floatchat_core.woa import (  # noqa: E402
@@ -79,7 +80,11 @@ app.middleware("http")(apply_rotated_session)
 auth_store.init_db()
 auth_store.purge_expired()
 
-PROC_DIR = os.path.join(BASE_DIR, "scripts", "data_feasibility", "data", "processed")
+# Which processed snapshot to serve. A refresh stages a new one and only
+# then activates it, so a failed download leaves this pointing at the
+# dataset that was already working - the original January 2024 extract.
+ACTIVE_SNAPSHOT = snapshots.resolve(BASE_DIR)
+PROC_DIR = ACTIVE_SNAPSHOT.directory
 
 df_prof = pd.read_parquet(os.path.join(PROC_DIR, "argo_profiles.parquet"))
 df_obs = pd.read_parquet(os.path.join(PROC_DIR, "argo_observations.parquet"))
@@ -169,7 +174,21 @@ def get_coverage():
     provenance = (PROCESSING_REPORT or {}).get("provenance", {})
     return json_safe({
         "dataset": "ERDDAP GDAC Argo (cached regional subset)",
-        "label": "cached historical observations",
+        "label": ("cached historical observations"
+                  if ACTIVE_SNAPSHOT.is_fallback else
+                  "recent observations, downloaded once"),
+        # Which extract every number on this response came from. Coverage
+        # and query results are read from one snapshot, so they can never
+        # describe different data.
+        "snapshot": {
+            **ACTIVE_SNAPSHOT.describe(),
+            "requested_window_utc": provenance.get("requested_window_utc"),
+            "requested_region": provenance.get("requested_region"),
+            "retrieved_at": provenance.get("retrieved_at")
+                            or provenance.get("processed_at"),
+            "truncated": (provenance.get("policy") or {}).get("truncated", False),
+            "max_rows": (provenance.get("policy") or {}).get("max_rows"),
+        },
         "distinct_floats": int(df_prof["platform"].nunique()),
         "distinct_profiles": int(df_prof["profile_id"].nunique()),
         "observation_count": int(len(df_obs)),

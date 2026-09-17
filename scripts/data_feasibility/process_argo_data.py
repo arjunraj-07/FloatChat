@@ -135,6 +135,16 @@ def process():
         "variable_definitions": ARGO_VARIABLE_DEFINITIONS,
     }
 
+    records, exclusions, unsupported_modes_seen = records_from_frame(df)
+    df_obs = pd.DataFrame(records)
+    return _finish(df, df_obs, records, exclusions, unsupported_modes_seen, provenance)
+
+
+def records_from_frame(df):
+    """Per-level records, exclusion counts and the modes that were refused.
+
+    Shared with the refresh path so both ingestions apply one QC policy.
+    """
     records = []
     exclusions = {
         "unsupported_mode": 0,
@@ -214,8 +224,10 @@ def process():
 
     exclusions["psal_masked"] = psal_masked
     exclusions["unsupported_modes_seen"] = unsupported_modes_seen
+    return records, exclusions, unsupported_modes_seen
 
-    df_obs = pd.DataFrame(records)
+
+def _finish(df, df_obs, records, exclusions, unsupported_modes_seen, provenance):
     print(f"Total input rows: {len(df)}")
     print(f"Retained observations: {len(df_obs)}")
     print(f"Exclusions: {json.dumps(exclusions, indent=2)}")
