@@ -57,35 +57,85 @@ def test_the_method_and_its_thresholds_travel_with_the_result():
     result = est(SHARP_DEPTHS, SHARP_TEMPS)
     assert result["method_version"]
     assert result["policy"]["min_gradient_c_per_m"] == MIN_GRADIENT_C_PER_M
-    assert "application threshold" in result["policy"]["note"]
+    assert "application policy" in result["policy"]["note"]
 
 
-def test_no_threshold_is_presented_as_a_scientific_standard():
-    """The 0.2 C/m minimum has no cited source; only the definition has one.
+def test_the_cited_criterion_is_reported_without_claiming_it_validates_ours():
+    """The >0.2 C/m criterion is real; its applicability here is not claimed.
 
-    An earlier version of this module attributed it to Jiang et al. (2017) via
-    Romero et al. (2023). Romero et al. cite Jiang et al. for a classification
-    of thermocline *form*, and their only 0.2 is a temperature difference used
-    for mixed-layer depth. The claim is gone and must not return.
+    Romero et al. (2023), Section 1, attribute a thermocline standard of
+    >0.2 C/m to Jiang et al. (2017), who filter a per-point gradient strength
+    computed by their own method. We threshold a first difference between two
+    adjacent accepted levels. The note must cite the first without asserting
+    the second follows from it.
     """
     note = est(SHARP_DEPTHS, SHARP_TEMPS)["policy"]["note"]
-    assert "Jiang" not in note
-    assert "not a scientific standard" in note
-    # The three quantities are kept apart, not conflated.
+    # The citation is present and correctly attributed.
+    assert "Jiang et al. (2017)" in note
+    assert "Romero et al. (2023)" in note
+    # Ours is a policy that coincides with it, not a standard we meet.
+    assert "application policy" in note
+    # The transfer is explicitly unvalidated.
+    assert "has not been validated for this estimator or this dataset" in note
+    # The three quantities stay apart.
     assert "local interval gradient" in note
-    assert "temperature difference" in note
-    assert "mixed-layer depth" in note
-    assert "not been independently validated" in note
-    # The one thing that does come from the literature is the definition.
-    assert "maximum vertical temperature gradient" in note
+    assert "temperature difference used to define a mixed-layer depth" in note
+
+
+#: Wordings that would assert scientific validation this project has not done.
+#: Checked against the note and every refusal reason, so no phrasing of a
+#: policy can claim more support than exists.
+UNSUPPORTED_VALIDATION_CLAIMS = (
+    "validated against",
+    "scientifically validated",
+    "peer-reviewed threshold",
+    "internationally accepted",
+    "universally accepted",
+    "universal standard",
+    "industry standard",
+    "meets the scientific standard",
+    "proven",
+    "verified by",
+    "in accordance with the standard",
+    "as required by",
+)
+
+
+def _every_reason_text():
+    """The note plus a reason from each terminal status."""
+    texts = [est(SHARP_DEPTHS, SHARP_TEMPS)["policy"]["note"]]
+    for depths, temps in (
+        (SHARP_DEPTHS, SHARP_TEMPS),                                      # estimated
+        ([0, 10, 20], [25.0, 21.0, 20.0]),                                # insufficient
+        (list(range(0, 70, 10)), [20.0] * 7),                             # uniform
+        (list(range(0, 110, 10)), [25.0 - 0.01 * i for i in range(11)]),  # weak
+        (list(range(0, 70, 10)), [10.0 + 0.5 * i for i in range(7)]),     # warming
+        ([0, 10, 20, 30, 40, 50, 60], [20.0, 20.0, 20.0, 16.0, 20.0, 20.0, 20.0]),
+    ):
+        texts.append(est(depths, temps)["reason"])
+    texts.append(estimate(None)["reason"])
+    return texts
+
+
+@pytest.mark.parametrize("claim", UNSUPPORTED_VALIDATION_CLAIMS)
+def test_no_wording_claims_a_scientific_validation_we_have_not_done(claim):
+    for text in _every_reason_text():
+        assert claim not in text.lower(), f"{claim!r} in {text[:80]!r}"
+
+
+def test_a_policy_is_never_called_a_standard_we_satisfy():
+    """Citing a standard is allowed; claiming to meet one is not."""
+    for text in _every_reason_text():
+        lowered = text.lower()
+        for phrase in ("meets the", "satisfies the", "conforms to"):
+            assert phrase not in lowered, text[:80]
 
 
 def test_a_weak_profile_is_refused_against_our_threshold_not_a_standard():
     depths = list(range(0, 110, 10))
     temps = [25.0 - 0.01 * i for i in range(len(depths))]
     reason = est(depths, temps)["reason"]
-    assert "this prototype's application threshold" in reason
-    assert "standard" not in reason
+    assert "this prototype's application policy" in reason
 
 
 # --- profiles with no qualifying candidate ------------------------------------
@@ -110,7 +160,7 @@ def test_weak_cooling_below_the_standard_is_refused():
     temps = [25.0 - 0.01 * i for i in range(len(depths))]
     result = est(depths, temps)
     assert result["status"] == "no_qualifying_candidate"
-    assert "below this prototype's application threshold of 0.2" in result["reason"]
+    assert "below this prototype's application policy of 0.2" in result["reason"]
 
 
 def test_a_warming_only_profile_is_refused_and_the_limitation_explained():
