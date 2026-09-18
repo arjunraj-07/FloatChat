@@ -308,7 +308,10 @@ never overwrite a newer one. Debounce is 400 ms.
 **Four states are kept apart** (`querySession.ts`): current draft, latest
 validation for that draft, last execution, and displayed results. Editing
 invalidates the previous validation by construction — `currentValidation` only
-returns a result whose revision still matches.
+returns a result whose revision still matches. Proposals track the draft revision
+they were created for and their `appliedRevision` when accepted. The application uses
+`getProposalStatus` to determine exactly which state a proposal is in, like
+`applied_loading` or `previously_applied`, even as the draft and executions move forward.
 
 **Execution gating.** `isExecutable()` was inspected rather than trusted: it
 correctly admits only `valid` and `valid_partial_coverage`, and was hardened to
@@ -562,8 +565,10 @@ the frontend.
   contains them.
 - **Student/Scientific**: identical data, policies and calculations.
   Scientific adds units, TEMP/PSAL naming, QC and raw/adjusted fields,
-  provenance, validator codes and interpolation details. Explanations are a
-  static glossary; no model is called.
+  provenance, validator codes and interpolation details. Explanations support dynamic
+  adaptation to `view_mode` via the API endpoint `/api/plan/explain`, allowing
+  student mode to restrict explanation sentences and prioritize data range summaries over
+  generic profile counts. The glossary is static.
 - Backend timestamps are displayed as UTC (a naive stored timestamp means
   UTC). The accept-proposal date issue is fixed in §5e.
 
