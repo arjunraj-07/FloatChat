@@ -58,16 +58,10 @@ behaviour rather than a copy of it.
 
 ### Repository layout note (Verified)
 
-`frontend/` is a **git submodule** pointing at
-`https://github.com/arjunraj-07/frontend.git` (branch `master`). It was
-previously a bare gitlink with no `.gitmodules`, so a normal clone produced an
-empty directory. The nested repository and its history were left untouched;
-only the parent's representation of it was corrected.
-
-Clone with:
+`frontend/` is now an ordinary tracked directory in this repository. It was previously a git submodule pointing at `https://github.com/arjunraj-07/frontend.git`. A normal clone now includes all frontend source files automatically:
 
 ```bash
-git clone --recurse-submodules https://github.com/arjunraj-07/FloatChat
+git clone https://github.com/arjunraj-07/FloatChat
 ```
 
 `venv/` is no longer tracked (it previously contributed 14,459 tracked files).
@@ -308,7 +302,10 @@ never overwrite a newer one. Debounce is 400 ms.
 **Four states are kept apart** (`querySession.ts`): current draft, latest
 validation for that draft, last execution, and displayed results. Editing
 invalidates the previous validation by construction — `currentValidation` only
-returns a result whose revision still matches.
+returns a result whose revision still matches. Proposals track the draft revision
+they were created for and their `appliedRevision` when accepted. The application uses
+`getProposalStatus` to determine exactly which state a proposal is in, like
+`applied_loading` or `previously_applied`, even as the draft and executions move forward.
 
 **Execution gating.** `isExecutable()` was inspected rather than trusted: it
 correctly admits only `valid` and `valid_partial_coverage`, and was hardened to
@@ -353,7 +350,7 @@ dictionaries and the live dataset extent, so the frontend need not hardcode a
 second copy. `frontend/src/lib/planContract.ts` mirrors the schema in
 TypeScript and is checked against the Python enums by
 `tests/test_plan_contract_alignment.py`, which fails on drift and skips if the
-submodule is not checked out.
+frontend directory is missing.
 
 ## 5c. Natural-language drafting (Verified)
 
@@ -562,8 +559,10 @@ the frontend.
   contains them.
 - **Student/Scientific**: identical data, policies and calculations.
   Scientific adds units, TEMP/PSAL naming, QC and raw/adjusted fields,
-  provenance, validator codes and interpolation details. Explanations are a
-  static glossary; no model is called.
+  provenance, validator codes and interpolation details. Explanations support dynamic
+  adaptation to `view_mode` via the API endpoint `/api/plan/explain`, allowing
+  student mode to restrict explanation sentences and prioritize data range summaries over
+  generic profile counts. The glossary is static.
 - Backend timestamps are displayed as UTC (a naive stored timestamp means
   UTC). The accept-proposal date issue is fixed in §5e.
 

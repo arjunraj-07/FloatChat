@@ -342,7 +342,8 @@ def build_plan_router(
         except (ProviderNotConfigured, ProviderError):
             provider = None
 
-        result = explain_result(evidence, provider)
+        mode = payload.get("view_mode", "student") if isinstance(payload.get("view_mode"), str) else "student"
+        result = explain_result(evidence, provider, mode=mode)
         # The evidence travels with the answer so "View evidence" needs no
         # second request, and so every referenced fact can be checked.
         result["evidence"] = evidence

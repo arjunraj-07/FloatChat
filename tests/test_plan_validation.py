@@ -219,7 +219,7 @@ def test_declared_but_unimplemented_analyses_are_unsupported(analysis):
     """Appearing on the roadmap is not a reason to accept an operator."""
     response = post(base_plan(analyses=[analysis.value]))
     body = strict_json(response)
-    assert response.status_code == 200
+    assert response.status_code == 422
     assert body["outcome"] == "unsupported"
     assert "unsupported_analysis" in codes(body)
     assert ANALYSIS_CAPABILITIES[analysis].unavailable_reason in \

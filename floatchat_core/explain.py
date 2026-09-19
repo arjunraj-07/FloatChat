@@ -140,10 +140,15 @@ TEMPLATES: dict[str, Template] = {
         ),
         Template(
             "derived.at_depth",
-            "{0} values were computed at exactly {1}, between surrounding "
-            "measured levels.",
-            ["derived.count", "derived.target_depth_m"],
+            "At {1}, the estimated {subject} averages {0}.",
+            ["derived.*.value_mean", "derived.target_depth_m"],
             caveat="Computed values are not measurements.",
+        ),
+        Template(
+            "derived.unavailable",
+            "At {1}, {subject} could not be interpolated.",
+            ["derived.*.unavailable", "derived.target_depth_m"],
+            caveat="Missing measurements say nothing about conditions there.",
         ),
         Template(
             "woa.difference",
@@ -223,6 +228,9 @@ def _format_value(fact: dict) -> str:
             text = text.rstrip("0").rstrip(".")
     else:
         text = str(value)
+        if isinstance(value, str) and "T" in value and len(value) >= 10:
+            if value[4] == "-" and value[7] == "-":
+                text = value[:10]
     if not units:
         return text
     if units == "UTC":
@@ -248,7 +256,7 @@ def _envelope(outcome: ExplainOutcome, **extra) -> dict:
     return json_safe(payload)
 
 
-def render(evidence: dict, selections: Any) -> tuple[list, list, list, list]:
+def render(evidence: dict, selections: Any, max_sentences: int = MAX_SENTENCES) -> tuple[list, list, list, list]:
     """Fill approved templates from the evidence.
 
     Returns ``(sentences, caveats, used_fact_ids, rejected)``. A selection is
@@ -268,7 +276,7 @@ def render(evidence: dict, selections: Any) -> tuple[list, list, list, list]:
             {"reason": "malformed_selections", "detail": type(selections).__name__}]
 
     for selection in selections:
-        if len(sentences) >= MAX_SENTENCES:
+        if len(sentences) >= max_sentences:
             rejected.append({"reason": "too_many_sentences", "detail": None})
             break
         if not isinstance(selection, dict):
@@ -357,39 +365,37 @@ _SUMMARY_ORDER: list[tuple[str, list[str]]] = [
 ]
 
 
-def data_summary(evidence: dict) -> dict:
+def data_summary(evidence: dict, mode: str = "student") -> dict:
     """A short explanation built with no model at all.
 
     Used when no provider is configured or the provider fails. The caller
     labels it a data summary, so it is never shown as an AI answer.
     """
     available = {fact["id"] for fact in evidence.get("facts", [])}
+    
+    order = []
+    if mode == "student":
+        for v in evidence.get("variables", []):
+            order.append(("variable.range", [f"variable.{v}.value_min", f"variable.{v}.value_max"]))
+            order.append(("derived.at_depth", [f"derived.{v}.value_mean", "derived.target_depth_m"]))
+            order.append(("derived.unavailable", [f"derived.{v}.unavailable", "derived.target_depth_m"]))
+        order.append(("scope.profiles", ["profiles.count", "profiles.float_count", "time.observed_start", "time.observed_end"]))
+        for item in _SUMMARY_ORDER:
+            if item not in order:
+                order.append(item)
+    else:
+        order = _SUMMARY_ORDER
+        
     selections = [{"template": template_id, "facts": fact_ids}
-                  for template_id, fact_ids in _SUMMARY_ORDER
+                  for template_id, fact_ids in order
                   if all(fact_id in available for fact_id in fact_ids)]
-    sentences, caveats, used, rejected = render(evidence, selections)
+                  
+    max_sentences = 3 if mode == "student" else MAX_SENTENCES
+    sentences, caveats, used, rejected = render(evidence, selections, max_sentences)
     return {"sentences": sentences, "caveats": caveats, "used_fact_ids": used,
             "rejected": rejected}
 
 
-SYSTEM_PROMPT = (
-    "You help a reader understand ocean measurements that have already been "
-    "computed. You never state a number yourself and you never write prose.\n\n"
-    "You are given FACTS, each with an id, and TEMPLATES, each with an id and "
-    "numbered slots. Reply with JSON only:\n"
-    '{"selections": [{"template": "<template id>", "facts": ["<fact id>", ...]}]}\n\n'
-    "Rules:\n"
-    "- Use only the template ids and fact ids given. Anything else is rejected.\n"
-    "- Give exactly as many fact ids as the template requires, in slot order, "
-    "and matching the slot patterns shown.\n"
-    "- All slots in one sentence must describe the same variable.\n"
-    "- Choose at most six sentences, scope first, then measurements, then "
-    "anything missing or derived.\n"
-    "- Do not claim an ocean-wide condition from a few profiles, a marine "
-    "heatwave from a climatology difference, a detected thermocline from the "
-    "steepest cooling interval, or normal conditions from missing data.\n"
-    '- If the facts support no sentence, reply {"selections": []}.'
-)
 
 
 def build_user_prompt(evidence: dict) -> str:
@@ -413,7 +419,8 @@ def build_user_prompt(evidence: dict) -> str:
 
 
 def explain_result(evidence: dict,
-                   provider: Optional[JsonCompletionProvider]) -> dict:
+                   provider: Optional[JsonCompletionProvider],
+                   mode: str = "student") -> dict:
     """Produce an explanation for one set of evidence.
 
     Expected failures never raise: a missing provider, a timeout or an
@@ -432,7 +439,7 @@ def explain_result(evidence: dict,
             provider_message="This result carries no measurements to explain.",
             **common)
 
-    fallback = data_summary(evidence)
+    fallback = data_summary(evidence, mode)
 
     def as_summary(message: str) -> dict:
         return _envelope(
@@ -451,8 +458,38 @@ def explain_result(evidence: dict,
             "No explanation service is configured, so this is a data summary "
             "built directly from the result.")
 
+    prompt = (
+        "You help a reader understand ocean measurements that have already been "
+        "computed. You never state a number yourself and you never write prose.\n\n"
+        "You are given FACTS, each with an id, and TEMPLATES, each with an id and "
+        "numbered slots. Reply with JSON only:\n"
+        '{"selections": [{"template": "<template id>", "facts": ["<fact id>", ...]}]}\n\n'
+        "Rules:\n"
+        "- Use only the template ids and fact ids given. Anything else is rejected.\n"
+        "- Give exactly as many fact ids as the template requires, in slot order, "
+        "and matching the slot patterns shown.\n"
+        "- All slots in one sentence must describe the same variable.\n"
+    )
+    if mode == "student":
+        prompt += (
+            "- Give a direct, useful summary.\n"
+            "- Choose at most three short findings.\n"
+            "- Address temperature and salinity when both were requested.\n"
+        )
+    else:
+        prompt += (
+            "- Choose at most six sentences, scope first, then measurements, then "
+            "anything missing or derived.\n"
+        )
+    prompt += (
+        "- Do not claim an ocean-wide condition from a few profiles, a marine "
+        "heatwave from a climatology difference, a detected thermocline from the "
+        "steepest cooling interval, or normal conditions from missing data.\n"
+        '- If the facts support no sentence, reply {"selections": []}.'
+    )
+
     try:
-        raw = provider.complete_json(SYSTEM_PROMPT, build_user_prompt(evidence))
+        raw = provider.complete_json(prompt, build_user_prompt(evidence))
     except ProviderNotConfigured as exc:
         return as_summary(str(exc))
     except ProviderTimeout as exc:
@@ -475,7 +512,7 @@ def explain_result(evidence: dict,
             "The explanation service made a claim this build does not allow, "
             "so this is a data summary instead.")
 
-    sentences, caveats, used, rejected = render(evidence, raw.get("selections"))
+    sentences, caveats, used, rejected = render(evidence, raw.get("selections"), max_sentences=3 if mode == "student" else MAX_SENTENCES)
 
     if not sentences:
         return _envelope(

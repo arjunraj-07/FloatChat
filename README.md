@@ -8,17 +8,9 @@ scientific policies, verified dataset coverage and current limitations.
 
 ## Clone
 
-The frontend is a submodule, so clone recursively:
-
 ```bash
-git clone --recurse-submodules https://github.com/arjunraj-07/FloatChat
+git clone https://github.com/arjunraj-07/FloatChat
 cd FloatChat
-```
-
-Already cloned without it:
-
-```bash
-git submodule update --init --recursive
 ```
 
 ## Backend

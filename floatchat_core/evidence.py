@@ -141,13 +141,46 @@ def _variables(facts: list, coverage: dict) -> None:
 
 
 def _derived(facts: list, results: dict) -> None:
-    derived = [row for row in (results.get("derived") or []) if row.get("available")]
+    derived = results.get("derived") or []
     if not derived:
         return
-    _fact(facts, "derived.count", "values computed at an exact depth",
-          len(derived), None, "derived")
-    _fact(facts, "derived.target_depth_m", "the exact depth requested",
-          derived[0].get("target_depth_m"), "m", "derived")
+
+    target_depth = None
+    for row in derived:
+        if "target_depth_m" in row:
+            target_depth = row["target_depth_m"]
+            break
+
+    if target_depth is not None:
+        _fact(facts, "derived.target_depth_m", "the exact depth requested",
+              target_depth, "m", "derived")
+
+    available = [row for row in derived if row.get("available")]
+    if available:
+        _fact(facts, "derived.count", "values computed at an exact depth",
+              len(available), None, "derived")
+
+    values_by_var: dict[str, list[float]] = {}
+    unavailable_by_var: dict[str, int] = {}
+    
+    for row in derived:
+        var = row.get("variable")
+        if not var: continue
+        if row.get("available"):
+            values_by_var.setdefault(var, []).append(row["value"])
+        else:
+            unavailable_by_var[var] = unavailable_by_var.get(var, 0) + 1
+            
+    for var, values in values_by_var.items():
+        if values:
+            mean = sum(values) / len(values)
+            _fact(facts, f"derived.{var}.value_mean", f"mean estimated {VARIABLE_WORDS.get(var, var)}",
+                  mean, VALUE_UNITS.get(var), "derived")
+                  
+    for var, count in unavailable_by_var.items():
+        if count > 0:
+            _fact(facts, f"derived.{var}.unavailable", f"profiles where {VARIABLE_WORDS.get(var, var)} could not be interpolated",
+                  count, None, "count")
 
 
 def _gradients(facts: list, results: dict) -> None:
