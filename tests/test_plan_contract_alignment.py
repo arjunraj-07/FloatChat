@@ -5,7 +5,7 @@ is the simplest approach that adds no build tooling, but it can drift silently.
 These tests read the literal arrays out of the TypeScript file and compare them
 with the Python enums, so drift fails the backend suite.
 
-The frontend is a git submodule. If it is not checked out, these tests skip
+The frontend is now a tracked directory. If it is missing, these tests skip
 rather than fail - the backend must remain testable on its own.
 """
 
@@ -34,7 +34,7 @@ CONTRACT_PATH = os.path.join(
 
 pytestmark = pytest.mark.skipif(
     not os.path.isfile(CONTRACT_PATH),
-    reason="frontend submodule is not checked out",
+    reason="frontend directory is missing",
 )
 
 

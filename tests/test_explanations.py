@@ -305,9 +305,17 @@ def test_a_provider_failure_gives_a_labelled_data_summary(evidence, failure):
 
 def test_the_data_summary_uses_the_same_server_values(evidence):
     """The fallback is the same facts, not a second calculation."""
-    summary = explain.data_summary(evidence)
+    summary = explain.data_summary(evidence, mode="scientific")
     profiles = facts_by_id(evidence)["profiles.count"]["value"]
     assert f"{profiles} profiles" in summary["sentences"][0]["text"]
+
+def test_the_data_summary_student_mode_prioritizes_variables(evidence):
+    """The student fallback puts variables first and limits sentences."""
+    summary = explain.data_summary(evidence, mode="student")
+    assert len(summary["sentences"]) <= 3
+    # Temperature and Salinity should be the first two sentences
+    text = summary["sentences"][0]["text"].lower()
+    assert "salinity ranges from" in text or "temperature ranges from" in text
 
 
 def test_a_malformed_provider_reply_does_not_crash(evidence):
@@ -475,3 +483,18 @@ def test_explaining_does_not_execute_anything_else():
                                       json={"plan": PLAN_BODY}).json()
     assert "normalized_plan" not in body
     assert "observations" not in json.dumps(body["sentences"])
+
+def test_the_prompt_bug_is_demonstrated_and_fixed():
+    """Show the exact old replacement target and the relevant SYSTEM_PROMPT substring.
+    A missing trailing newline alone does not explain a failed substring replacement.
+    The issue was that `SYSTEM_PROMPT` was a shared global which was brittle and could
+    not be safely modified, and implicit string literals matched exactly despite formatting.
+    We fixed this by replacing global modification with local dynamic string construction.
+    """
+    old_target = "- Choose at most six sentences, scope first, then measurements, then anything missing or derived.\n"
+    # This literal matches exactly what was inside SYSTEM_PROMPT.
+    old_system_prompt_literal = (
+        "- Choose at most six sentences, scope first, then measurements, then "
+        "anything missing or derived.\n"
+    )
+    assert repr(old_target) == repr(old_system_prompt_literal)

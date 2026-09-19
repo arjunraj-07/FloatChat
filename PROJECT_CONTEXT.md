@@ -58,16 +58,10 @@ behaviour rather than a copy of it.
 
 ### Repository layout note (Verified)
 
-`frontend/` is a **git submodule** pointing at
-`https://github.com/arjunraj-07/frontend.git` (branch `master`). It was
-previously a bare gitlink with no `.gitmodules`, so a normal clone produced an
-empty directory. The nested repository and its history were left untouched;
-only the parent's representation of it was corrected.
-
-Clone with:
+`frontend/` is now an ordinary tracked directory in this repository. It was previously a git submodule pointing at `https://github.com/arjunraj-07/frontend.git`. A normal clone now includes all frontend source files automatically:
 
 ```bash
-git clone --recurse-submodules https://github.com/arjunraj-07/FloatChat
+git clone https://github.com/arjunraj-07/FloatChat
 ```
 
 `venv/` is no longer tracked (it previously contributed 14,459 tracked files).
@@ -356,7 +350,7 @@ dictionaries and the live dataset extent, so the frontend need not hardcode a
 second copy. `frontend/src/lib/planContract.ts` mirrors the schema in
 TypeScript and is checked against the Python enums by
 `tests/test_plan_contract_alignment.py`, which fails on drift and skips if the
-submodule is not checked out.
+frontend directory is missing.
 
 ## 5c. Natural-language drafting (Verified)
 

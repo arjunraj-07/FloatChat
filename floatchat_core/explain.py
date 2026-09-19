@@ -140,10 +140,15 @@ TEMPLATES: dict[str, Template] = {
         ),
         Template(
             "derived.at_depth",
-            "{0} values were computed at exactly {1}, between surrounding "
-            "measured levels.",
-            ["derived.count", "derived.target_depth_m"],
+            "At {1}, the estimated {subject} averages {0}.",
+            ["derived.*.value_mean", "derived.target_depth_m"],
             caveat="Computed values are not measurements.",
+        ),
+        Template(
+            "derived.unavailable",
+            "At {1}, {subject} could not be interpolated.",
+            ["derived.*.unavailable", "derived.target_depth_m"],
+            caveat="Missing measurements say nothing about conditions there.",
         ),
         Template(
             "woa.difference",
@@ -370,14 +375,10 @@ def data_summary(evidence: dict, mode: str = "student") -> dict:
     
     order = []
     if mode == "student":
-        vars_present = set()
-        for fact_id in available:
-            if fact_id.startswith("variable."):
-                parts = fact_id.split(".")
-                if len(parts) >= 2:
-                    vars_present.add(parts[1])
-        for v in sorted(vars_present):
+        for v in evidence.get("variables", []):
             order.append(("variable.range", [f"variable.{v}.value_min", f"variable.{v}.value_max"]))
+            order.append(("derived.at_depth", [f"derived.{v}.value_mean", "derived.target_depth_m"]))
+            order.append(("derived.unavailable", [f"derived.{v}.unavailable", "derived.target_depth_m"]))
         order.append(("scope.profiles", ["profiles.count", "profiles.float_count", "time.observed_start", "time.observed_end"]))
         for item in _SUMMARY_ORDER:
             if item not in order:
@@ -395,24 +396,6 @@ def data_summary(evidence: dict, mode: str = "student") -> dict:
             "rejected": rejected}
 
 
-SYSTEM_PROMPT = (
-    "You help a reader understand ocean measurements that have already been "
-    "computed. You never state a number yourself and you never write prose.\n\n"
-    "You are given FACTS, each with an id, and TEMPLATES, each with an id and "
-    "numbered slots. Reply with JSON only:\n"
-    '{"selections": [{"template": "<template id>", "facts": ["<fact id>", ...]}]}\n\n'
-    "Rules:\n"
-    "- Use only the template ids and fact ids given. Anything else is rejected.\n"
-    "- Give exactly as many fact ids as the template requires, in slot order, "
-    "and matching the slot patterns shown.\n"
-    "- All slots in one sentence must describe the same variable.\n"
-    "- Choose at most six sentences, scope first, then measurements, then "
-    "anything missing or derived.\n"
-    "- Do not claim an ocean-wide condition from a few profiles, a marine "
-    "heatwave from a climatology difference, a detected thermocline from the "
-    "steepest cooling interval, or normal conditions from missing data.\n"
-    '- If the facts support no sentence, reply {"selections": []}.'
-)
 
 
 def build_user_prompt(evidence: dict) -> str:
@@ -475,14 +458,35 @@ def explain_result(evidence: dict,
             "No explanation service is configured, so this is a data summary "
             "built directly from the result.")
 
-    prompt = SYSTEM_PROMPT
+    prompt = (
+        "You help a reader understand ocean measurements that have already been "
+        "computed. You never state a number yourself and you never write prose.\n\n"
+        "You are given FACTS, each with an id, and TEMPLATES, each with an id and "
+        "numbered slots. Reply with JSON only:\n"
+        '{"selections": [{"template": "<template id>", "facts": ["<fact id>", ...]}]}\n\n'
+        "Rules:\n"
+        "- Use only the template ids and fact ids given. Anything else is rejected.\n"
+        "- Give exactly as many fact ids as the template requires, in slot order, "
+        "and matching the slot patterns shown.\n"
+        "- All slots in one sentence must describe the same variable.\n"
+    )
     if mode == "student":
-        prompt = prompt.replace(
-            "- Choose at most six sentences, scope first, then measurements, then anything missing or derived.\n",
+        prompt += (
             "- Give a direct, useful summary.\n"
             "- Choose at most three short findings.\n"
             "- Address temperature and salinity when both were requested.\n"
         )
+    else:
+        prompt += (
+            "- Choose at most six sentences, scope first, then measurements, then "
+            "anything missing or derived.\n"
+        )
+    prompt += (
+        "- Do not claim an ocean-wide condition from a few profiles, a marine "
+        "heatwave from a climatology difference, a detected thermocline from the "
+        "steepest cooling interval, or normal conditions from missing data.\n"
+        '- If the facts support no sentence, reply {"selections": []}.'
+    )
 
     try:
         raw = provider.complete_json(prompt, build_user_prompt(evidence))

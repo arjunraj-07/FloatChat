@@ -823,9 +823,10 @@ def validate_plan(plan: QueryPlanRequest, index: DatasetIndex,
 def status_for_outcome(outcome: str) -> int:
     """HTTP status for a validation outcome.
 
-    ``invalid`` is 422: the plan cannot be executed as written. Every other
-    outcome is 200, because the request was understood and the body carries a
-    complete, actionable validation result - including ``unsupported`` and
-    ``valid_no_data``, neither of which is a malformed request.
+    ``invalid`` and ``unsupported`` are 422: the plan cannot be executed.
+    Every other outcome is 200, because the request was understood and is
+    actionable.
     """
-    return 422 if outcome == Outcome.INVALID.value else 200
+    if outcome in (Outcome.INVALID.value, Outcome.UNSUPPORTED.value):
+        return 422
+    return 200
