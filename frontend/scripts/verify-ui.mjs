@@ -12,7 +12,9 @@
 // backend would reject before any provider call; the AI checks are skipped if
 // interception is not in place.
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const CHROME = process.env.CHROME_PATH ?? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 // ?intro=0 skips the cinematic introduction so the checks start in the
@@ -23,20 +25,17 @@ const API = process.env.FLOATCHAT_API ?? 'http://127.0.0.1:8000/api';
 const TZ = process.env.FLOATCHAT_TZ ?? 'Asia/Kolkata';
 const OUT = process.argv[2];
 if (!OUT) { console.error('usage: node scripts/verify-ui.mjs <screenshot-dir>'); process.exit(2); }
-const PORT = 9334;
+const PORT = 9333;
 const PLAY_MS = 1200;
 mkdirSync(OUT, { recursive: true });
-// Start each run from a clean browser profile. A session cookie left behind by
-// an earlier run would otherwise decide whether the sign-in screen appears,
-// and the account checks must observe the signed-out state every time.
-const { rmSync } = await import('node:fs');
-for (const profile of ['chrome-profile', 'chrome-profile-nogl']) {
-  rmSync(`${OUT}/${profile}`, { recursive: true, force: true });
-}
+const tmpBase = mkdtempSync(join(tmpdir(), 'verify-ui-'));
+const profileDir = join(tmpBase, 'chrome-profile');
+const noGlProfileDir = join(tmpBase, 'chrome-profile-nogl');
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const chrome = spawn(CHROME, [
-  '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${OUT}/chrome-profile`,
+  '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profileDir}`,
   '--window-size=1366,768', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check',
   'about:blank',
 ], { stdio: 'inherit' });
@@ -104,6 +103,14 @@ const explainReply = (over) => ({
 async function servePaused({ requestId, request }) {
   if (request.method === 'OPTIONS') {
     await send('Fetch.fulfillRequest', { requestId, responseCode: 204, responseHeaders: CORS });
+    return;
+  }
+  if (request.url.includes('/plan/nl_status')) {
+    const body = Buffer.from(JSON.stringify({ configured: true })).toString('base64');
+    await send('Fetch.fulfillRequest', {
+      requestId, responseCode: 200,
+      responseHeaders: [...CORS, { name: 'Content-Type', value: 'application/json' }], body,
+    });
     return;
   }
   const explaining = request.url.includes('/plan/explain');
@@ -376,6 +383,7 @@ await send('Network.enable');
 await send('Fetch.enable', { patterns: [
   { urlPattern: '*/api/plan/draft*', requestStage: 'Request' },
   { urlPattern: '*/api/plan/explain*', requestStage: 'Request' },
+  { urlPattern: '*/api/plan/nl_status*', requestStage: 'Request' },
 ] });
 await send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false });
 await send('Emulation.setTimezoneOverride', { timezoneId: TZ });
@@ -1363,15 +1371,25 @@ if (intercepted) {
   });
   await nav('assistant');
   const draftsBefore = countCalls('/plan/draft', 'POST');
+  const ex0Props = await evaluate(`(() => { const el = ${q('[data-testid=example-0]')}; return el ? { disabled: el.disabled, text: el.innerText, html: el.outerHTML } : null; })()`);
+  console.log('example-0 props:', ex0Props);
   await click('[data-testid=example-0]');
   await sleep(300);
-  check('chat: a starter question only fills the composer', (await value('[data-testid=ask-input]')) === 'Show temperature at 100 m.' && countCalls('/plan/draft', 'POST') === draftsBefore);
+  const inputVal = await value('[data-testid=ask-input]');
+  const draftsNow = countCalls('/plan/draft', 'POST');
+  console.log('Composer value:', inputVal);
+  console.log('Drafts:', draftsBefore, '->', draftsNow);
+  check('chat: a starter question only fills the composer', inputVal === 'Show temperature at 100 m.' && draftsNow === draftsBefore);
   draftQueue.push({ delay: 1500, body: success });
+  const askEnabled = await evaluate(`!${q('[data-testid=ask-button]')}.disabled`);
+  console.log('Ask button enabled?', askEnabled);
   await click('[data-testid=ask-button]');
   await sleep(400);
+  const threadText = await text('[data-testid=chat-thread]') ?? '';
+  console.log('Thread text:', threadText);
   check('chat: the question appears in the thread with a pending reply',
     (await isVisible('[data-testid=chat-user]')) && (await isVisible('[data-testid=chat-pending]')) &&
-    /Show temperature at 100 m/.test((await text('[data-testid=chat-thread]')) ?? ''));
+    /Show temperature at 100 m/.test(threadText));
   await waitFor(`${q('[data-testid=chat-proposal]')}`, 'proposal in the thread');
   await sleep(300);
   const card = (await text('[data-testid=chat-proposal]')) ?? '';
@@ -1401,7 +1419,7 @@ if (intercepted) {
   // the conversation is shown, and a hidden element reports no innerText, so
   // the run is counted here and the map is read after navigating to it.
   await waitForCalls('/plan/execute', 'POST', execs, 'the applied settings to run');
-  await sleep(700);
+  await waitFor(`${q('[data-testid=proposal-applied]')}`, 'proposal to be applied');
   check('chat: applying updates the results by itself, with no run button',
     countCalls('/plan/execute', 'POST') > execs && (await activeNav()) === 'nav-assistant' &&
     !(await isVisible('[data-testid=run-query]')) && (await isVisible('[data-testid=proposal-applied]')),
@@ -1726,7 +1744,7 @@ await shot('06-mobile-assistant');
 // A second browser started with --disable-3d-apis has no WebGL at all.
 const NO_GL_PORT = 9334;
 const noGl = spawn(CHROME, [
-  '--headless=new', `--remote-debugging-port=${NO_GL_PORT}`, `--user-data-dir=${OUT}/chrome-profile-nogl`, '--disable-3d-apis',
+  '--headless=new', `--remote-debugging-port=${NO_GL_PORT}`, `--user-data-dir=${noGlProfileDir}`, '--disable-3d-apis',
   '--window-size=1366,768', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', 'about:blank',
 ], { stdio: 'ignore' });
 try {
@@ -1742,8 +1760,12 @@ try {
     console.log(`  (timed out waiting for ${label})`);
     return false;
   };
-  await waitIn(`document.querySelector('[data-testid=auth-public]')`, 'sign-in screen without WebGL');
-  await second.evaluate(`document.querySelector('[data-testid=auth-public]').click()`);
+  const waitAuth = await waitIn(`document.querySelector('[data-testid=auth-public]')`, 'sign-in screen without WebGL');
+  if (!waitAuth) {
+    const errShot = await second.send('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(`${OUT}/error-no-gl.png`, Buffer.from(errShot.data, 'base64'));
+  }
+  await second.evaluate(`document.querySelector('[data-testid=auth-public]')?.click()`);
   await waitIn(`document.querySelector('[data-testid=mapview-globe]')`, 'page without WebGL');
   const hasGl = await second.evaluate(`Boolean(document.createElement('canvas').getContext('webgl2') || document.createElement('canvas').getContext('webgl'))`);
   await second.evaluate(`document.querySelector('[data-testid=mapview-globe]').click()`);
@@ -1867,4 +1889,5 @@ console.log(`\n${checks.filter((c) => c.ok).length}/${checks.length} checks pass
 console.log(problems.length ? `page errors:\n  ${problems.join('\n  ')}` : 'page errors: none');
 ws.close();
 chrome.kill();
+try { rmSync(tmpBase, { recursive: true, force: true }); } catch (e) { console.error('cleanup error', e); }
 process.exit(0);

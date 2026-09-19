@@ -498,3 +498,21 @@ def test_the_prompt_bug_is_demonstrated_and_fixed():
         "anything missing or derived.\n"
     )
     assert repr(old_target) == repr(old_system_prompt_literal)
+
+
+def test_exact_depth_average_meaning():
+    evidence = {
+        "variables": ["temperature", "salinity"],
+        "facts": [
+            {"id": "derived.temperature.value_mean", "value": 15.5},
+            {"id": "derived.temperature.count", "value": 3},
+            {"id": "derived.salinity.value_mean", "value": 35.0},
+            {"id": "derived.salinity.count", "value": 1},
+            {"id": "derived.target_depth_m", "value": 100},
+        ]
+    }
+    summary = explain.data_summary(evidence, mode="student")
+    texts = [s["text"] for s in summary["sentences"]]
+    assert any("average of 3 available estimated Temperature values" in t for t in texts)
+    assert any("average of 1 available estimated Salinity values" in t for t in texts)
+

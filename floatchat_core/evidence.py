@@ -176,7 +176,8 @@ def _derived(facts: list, results: dict) -> None:
             mean = sum(values) / len(values)
             _fact(facts, f"derived.{var}.value_mean", f"mean estimated {VARIABLE_WORDS.get(var, var)}",
                   mean, VALUE_UNITS.get(var), "derived")
-                  
+            _fact(facts, f"derived.{var}.count", f"profiles with an estimate",
+                  len(values), "profiles")
     for var, count in unavailable_by_var.items():
         if count > 0:
             _fact(facts, f"derived.{var}.unavailable", f"profiles where {VARIABLE_WORDS.get(var, var)} could not be interpolated",

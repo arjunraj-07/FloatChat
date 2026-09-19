@@ -140,8 +140,8 @@ TEMPLATES: dict[str, Template] = {
         ),
         Template(
             "derived.at_depth",
-            "At {1}, the estimated {subject} averages {0}.",
-            ["derived.*.value_mean", "derived.target_depth_m"],
+            "At {1}, the average of {2} available estimated {subject} values is {0}.",
+            ["derived.*.value_mean", "derived.target_depth_m", "derived.*.count"],
             caveat="Computed values are not measurements.",
         ),
         Template(
@@ -204,7 +204,9 @@ def _match_slot(fact_id: str, pattern: str) -> bool:
 def _variable_of(fact_id: str) -> Optional[str]:
     """The variable a fact belongs to, for ``{subject}`` and slot agreement."""
     parts = fact_id.split(".")
-    if len(parts) >= 2 and parts[0] in ("variable", "gradient"):
+    if len(parts) >= 2 and parts[0] in ("variable", "gradient", "derived"):
+        if parts[1] == "target_depth_m":
+            return None
         return parts[1]
     return None
 
@@ -377,7 +379,7 @@ def data_summary(evidence: dict, mode: str = "student") -> dict:
     if mode == "student":
         for v in evidence.get("variables", []):
             order.append(("variable.range", [f"variable.{v}.value_min", f"variable.{v}.value_max"]))
-            order.append(("derived.at_depth", [f"derived.{v}.value_mean", "derived.target_depth_m"]))
+            order.append(("derived.at_depth", [f"derived.{v}.value_mean", "derived.target_depth_m", f"derived.{v}.count"]))
             order.append(("derived.unavailable", [f"derived.{v}.unavailable", "derived.target_depth_m"]))
         order.append(("scope.profiles", ["profiles.count", "profiles.float_count", "time.observed_start", "time.observed_end"]))
         for item in _SUMMARY_ORDER:
