@@ -4,6 +4,8 @@ import type { PlanExecutionResponse } from '@/lib/planContract.ts';
 import type { WoaMatchResponse } from '@/lib/explorerModel.ts';
 import { SectionId } from '@/lib/navigation.ts';
 
+import WorkspaceHeader from './WorkspaceHeader';
+
 interface Props {
   response: PlanExecutionResponse | null;
   woa: WoaMatchResponse | null;
@@ -30,14 +32,13 @@ export default function AnalysisWorkspace({ response, woa, onNavigate }: Props) 
     : null;
 
   return (
-    <div data-testid="ws-analysis" className="fc-shell animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="fc-screenhead">
-        <div className="fc-screenhead-main">
-          <span className="fc-kicker">Analysis</span>
-          <h2 id="heading-analysis" tabIndex={-1} className="fc-screen-title outline-none">What can be computed from this subset</h2>
-          <p className="fc-muted fc-sm fc-screen-sub">Every figure below is derived from the backend results.</p>
-        </div>
-      </div>
+    <div data-testid="ws-analysis" className="workspace mx-auto w-full max-w-[1280px] px-5 py-8 lg:px-8">
+      <WorkspaceHeader
+        eyebrow="Analysis"
+        title="What can be computed from this subset"
+        description="Every figure below is derived from the backend results."
+        headingId="heading-analysis"
+      />
 
       <div className="fc-grid-3 mt-6">
         <div className="fc-panel p-0 overflow-hidden">

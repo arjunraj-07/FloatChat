@@ -296,7 +296,7 @@ declare global {
  * last frame's draw calls, the camera, and screen positions of the points
  * a view draws, so a test can click them with real pointer events.
  */
-export function SceneProbe({ name, points, extra }: { name: string; points: () => ProbePoint[]; extra?: () => unknown }) {
+export function SceneProbe({ name, points, extra, isGlobe = false }: { name: string; points: () => ProbePoint[]; extra?: () => unknown; isGlobe?: boolean }) {
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera);
   useEffect(() => {
@@ -327,7 +327,7 @@ export function SceneProbe({ name, points, extra }: { name: string; points: () =
             y: rect.top + ((1 - ndc.y) / 2) * rect.height,
             onScreen: ndc.z < 1 && Math.abs(ndc.x) <= 1 && Math.abs(ndc.y) <= 1,
             // For points on a globe: on the hemisphere facing the camera.
-            facing: world.dot(eye.clone().sub(world)) > 0,
+            facing: isGlobe ? world.dot(eye.clone().sub(world)) > 0 : true,
           };
         });
       },

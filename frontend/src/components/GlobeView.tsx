@@ -171,6 +171,7 @@ function GlobeScene({
       <ContextLossWatcher onLost={onLost} />
       <SceneProbe
         name="globe"
+        isGlobe={true}
         points={() =>
           ids.map((id, i) => ({ id, position: [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]] }))
         }
