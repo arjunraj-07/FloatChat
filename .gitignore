@@ -41,3 +41,5 @@ data/accounts/
 # by scripts/refresh_argo.ps1 and reproducible from its recorded
 # provenance. The original January 2024 extract stays tracked.
 scripts/data_feasibility/data/snapshots/
+
+api/auth.sqlite
