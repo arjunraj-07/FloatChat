@@ -423,7 +423,7 @@ await nav('map');
 // Signed out, the results still load by themselves: public exploration is a
 // complete path, not a stripped one. They load on their own, so wait for them
 // rather than assuming they have arrived.
-await waitFor(`${q('[data-testid=profile-panel]')}`, 'results while signed out');
+await waitFor(`${q('[data-testid=profile-panel]')}`, 'results while signed out', 15000);
 check('accounts: the map and its results are fully usable signed out',
   (await isVisible('[data-testid=map-card]')) && /Query result/.test(await text('[data-testid=map-mode]')) &&
   (await isVisible('[data-testid=profile-panel]')));
@@ -965,10 +965,15 @@ check('map: no marker hidden under the legend after results', (await markersUnde
 await shot('01-map-explorer');
 
 // 4. Marker selection ----------------------------------------------------------------
+await evaluate(`document.querySelector('[data-testid=map-card]')?.scrollIntoView({ behavior: 'instant', block: 'center' })`);
+await sleep(100);
+await shot('debug-before-click');
 const before = await value('[data-testid=profile-select]');
 const targets = await evaluate(`Array.from(document.querySelectorAll('[data-testid=map-card] path.leaflet-interactive')).filter((p) => /a/i.test(p.getAttribute('d') || '')).map((p) => p.getBoundingClientRect()).filter((r) => r.width > 0).map((r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 }))`);
 let clicked = false;
 for (const t of targets) {
+  const topEl = await evaluate(`(() => { const el = document.elementFromPoint(${t.x}, ${t.y}); return el ? el.tagName + '.' + el.className : 'null'; })()`);
+  console.log('Target at', t.x, t.y, 'is covered by', topEl);
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: t.x, y: t.y, button: 'left', clickCount: 1 });
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: t.x, y: t.y, button: 'left', clickCount: 1 });
   await sleep(600);
@@ -1135,6 +1140,7 @@ await setTime(String(await evaluate(`${q(navSlider)}.max`)));
 await sleep(900);
 const paneBefore = await paneTransform();
 const c = await evaluate(`(() => { const r = ${q('[data-testid=map-card] .leaflet-container')}.getBoundingClientRect(); return { x: Math.round(r.left + r.width * 0.55), y: Math.round(r.top + r.height * 0.35) }; })()`);
+await shot('debug-before-drag');
 await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y });
 await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', buttons: 1, clickCount: 1 });
 for (let i = 1; i <= 8; i++) {
@@ -1830,6 +1836,13 @@ await send('Emulation.setEmulatedMedia', { features: [] });
 console.log(`\n${checks.filter((c) => c.ok).length}/${checks.length} checks passed`);
 console.log(problems.length ? `page errors:\n  ${problems.join('\n  ')}` : 'page errors: none');
 ws.close();
-chrome.kill();
-try { rmSync(tmpBase, { recursive: true, force: true }); } catch (e) { console.error('cleanup error', e); }
+try {
+  const exited = new Promise((resolve) => chrome.on('exit', resolve));
+  await send('Browser.close').catch(() => chrome.kill());
+  await Promise.race([exited, sleep(3000).then(() => chrome.kill())]);
+  await sleep(500); // OS file lock release time
+  rmSync(tmpBase, { recursive: true, force: true });
+} catch (e) {
+  console.error('cleanup error', e);
+}
 process.exit(0);
