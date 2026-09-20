@@ -32,7 +32,7 @@ interface Props {
   onCommand: (action: NavigatorAction, options?: { select?: boolean }) => void;
 }
 
-const BUTTON = 'button button-outline button-small shrink-0';
+const BUTTON = 'fc-btn fc-btn-sm shrink-0';
 
 export default function TimeNavigator({
   status,
@@ -64,7 +64,7 @@ export default function TimeNavigator({
     onCommand({ type: 'go', index: steps.length - 1 }, { select: false });
 
   return (
-    <div data-testid="time-bar" className="shrink-0 border-t border-[var(--divider)]">
+    <div data-testid="time-bar" className="shrink-0 border-t border-[rgba(139,203,196,0.15)]">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
         <button
           type="button"
@@ -72,21 +72,21 @@ export default function TimeNavigator({
           aria-expanded={open}
           aria-controls="time-navigator"
           onClick={toggle}
-          className="button button-text button-small"
+          className="fc-btn fc-btn-sm"
         >
           {open ? 'Hide time controls' : 'Explore over time'}
         </button>
 
         {restricted && (
           <>
-            <span data-testid="time-through" className="chip chip-ochre">
+            <span data-testid="time-through" className="fc-badge fc-badge-warn">
               Through {label}
             </span>
             <button
               type="button"
               data-testid="time-show-all"
               onClick={showAllTimes}
-              className="button button-text button-small"
+              className="fc-btn fc-btn-sm"
             >
               Show all times
             </button>
@@ -103,7 +103,7 @@ export default function TimeNavigator({
           // Extra bottom padding keeps the last line clear of the card's
           // rounded edge. It changes no behaviour and takes no height from
           // the chart, which sits in the panel beside this one.
-          className="space-y-1.5 border-t border-[var(--divider)] bg-[var(--surface-quiet)] px-4 pb-4 pt-2.5"
+          className="space-y-1.5 border-t border-[rgba(139,203,196,0.15)] bg-[rgba(8,27,35,0.4)] px-4 pb-4 pt-2.5"
         >
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -150,14 +150,14 @@ export default function TimeNavigator({
               onChange={(event) => onCommand({ type: 'go', index: Number(event.target.value) })}
               className="h-6 min-w-[6rem] flex-1 accent-[var(--teal)]"
             />
-            <output data-testid="time-label" className="mono shrink-0 text-xs font-semibold tabular-nums text-[var(--ink)]">
+            <output data-testid="time-label" className="mono shrink-0 text-xs font-semibold tabular-nums text-[var(--fc-fg)]">
               {label}
             </output>
           </div>
-          <p data-testid="time-status" aria-live="polite" className="text-xs text-[var(--ink)]">
+          <p data-testid="time-status" aria-live="polite" className="text-xs text-[var(--fc-muted)]">
             Showing {visibleCount} of {totalCount} returned profiles through {label}.
           </p>
-          <details className="tiny">
+          <details className="tiny text-[var(--fc-muted)]">
             <summary className="cursor-pointer select-none">About these steps</summary>
             <p className="mt-1">
               Step {index + 1} of {steps.length}

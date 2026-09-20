@@ -66,18 +66,18 @@ export default function CompareWorkspace({
 
   if (!results || results.profiles.length === 0) {
     return (
-      <div data-testid="ws-compare" className="workspace mx-auto w-full max-w-[1100px] px-5 py-8 lg:px-8">
+      <div data-testid="ws-compare" className="fc-shell mx-auto w-full max-w-[1100px] px-5 py-8 lg:px-8">
         <WorkspaceHeader
           eyebrow="Compare"
           title="Compare two profiles"
           description="Two profiles from one result, on common axes with depth downward."
           headingId="heading-compare"
         />
-        <div data-testid="compare-empty" className="card space-y-4 p-6">
-          <p className="text-sm text-[var(--muted)]">
+        <div data-testid="compare-empty" className="fc-panel space-y-4 p-6 mt-6">
+          <p className="text-sm text-[var(--fc-muted)]">
             Compare needs results first. Show results in Map Explorer, then choose two of the returned profiles here.
           </p>
-          <button type="button" data-testid="compare-open-map" onClick={onOpenMap} className="button button-primary">
+          <button type="button" data-testid="compare-open-map" onClick={onOpenMap} className="fc-btn fc-btn-primary">
             Open Map Explorer
           </button>
         </div>
@@ -112,7 +112,7 @@ export default function CompareWorkspace({
   // Flows with the page rather than owning its own height, so Compare has one
   // scrollbar instead of an inner pane fighting the page.
   return (
-    <div data-testid="ws-compare" className="workspace mx-auto flex w-full max-w-[1280px] flex-col gap-4 px-5 py-6 lg:px-8">
+    <div data-testid="ws-compare" className="fc-shell mx-auto flex w-full max-w-[1280px] flex-col gap-4 px-5 py-6 lg:px-8">
       <WorkspaceHeader
         eyebrow="03 / Compare"
         title="Compare two profiles"
@@ -123,7 +123,7 @@ export default function CompareWorkspace({
       {timeRestricted && (
         <div
           data-testid="compare-time-scope"
-          className="flex flex-wrap items-center gap-3 rounded-md border border-[var(--divider)] bg-[var(--mineral)] px-4 py-2.5 text-sm text-[var(--teal-deep)]"
+          className="flex flex-wrap items-center gap-3 rounded-md border border-[var(--fc-line-2)] bg-[rgba(139,203,196,0.1)] px-4 py-2.5 text-sm text-[var(--fc-teal-bright)]"
         >
           <span>
             Time view: {visibleProfiles.length} of {totalCount} returned profiles, observed through {throughLabel}.
@@ -132,7 +132,7 @@ export default function CompareWorkspace({
             type="button"
             data-testid="view-all-times"
             onClick={onViewAllTimes}
-            className="button button-outline button-small ml-auto bg-[var(--surface)]"
+            className="fc-btn fc-btn-ghost fc-btn-sm ml-auto bg-[var(--fc-panel)]"
           >
             View all returned times
           </button>
@@ -164,7 +164,7 @@ export default function CompareWorkspace({
                 data-testid={`compare-${key}`}
                 aria-label={`Profile ${key.toUpperCase()}: ${identity}`}
                 title={identity}
-                className="field-input min-h-[38px] min-w-0 flex-1 py-1.5 text-sm"
+                className="fc-input min-h-[38px] min-w-0 flex-1 py-1.5 text-sm"
                 value={compare[key] ?? ''}
                 onChange={(e) => onCompareChange({ ...compare, [key]: e.target.value })}
               >
@@ -191,7 +191,7 @@ export default function CompareWorkspace({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div role="radiogroup" aria-label="Variable to compare" className="segmented">
+        <div role="radiogroup" aria-label="Variable to compare" className="fc-segmented">
           {requested.map((name) => (
             <button
               key={name}
@@ -200,14 +200,14 @@ export default function CompareWorkspace({
               aria-checked={variable === name}
               data-testid={`compare-var-${name}`}
               onClick={() => onCompareVariableChange(name)}
-              className={variable === name ? 'is-selected' : ''}
+              className={variable === name ? 'is-on' : ''}
             >
               {VARIABLE_LABEL[name]}
             </button>
           ))}
         </div>
         {ordered.length < 2 && (
-          <p className="text-sm text-[var(--ochre)]">
+          <p className="text-sm text-[var(--fc-coral)]">
             {results.profiles.length < 2
               ? 'This result has only one profile, so there is nothing to compare.'
               : 'Only one profile is observed up to the selected time. View all returned times to compare.'}
@@ -217,11 +217,11 @@ export default function CompareWorkspace({
 
       {/* Tall enough that the two curves stay readable once the workspace
           header and selectors have taken their space. */}
-      <div ref={chartBox} className="card min-h-[420px] flex-1 overflow-hidden">
+      <div ref={chartBox} className="fc-panel min-h-[420px] flex-1 overflow-hidden p-4">
         {nothingToDraw ? (
           <div
             data-testid="compare-chart-empty"
-            className="flex h-full items-center justify-center p-6 text-center text-sm text-[var(--muted)]"
+            className="flex h-full items-center justify-center p-6 text-center text-sm text-[var(--fc-muted)]"
           >
             <p>
               No curve to draw: neither selection has valid {VARIABLE_LABEL[variable].toLowerCase()} values
@@ -233,7 +233,7 @@ export default function CompareWorkspace({
         )}
       </div>
 
-      <div data-testid="compare-notes" className="space-y-1 pb-2 text-sm text-[var(--ochre)]">
+      <div data-testid="compare-notes" className="space-y-1 pb-2 text-sm text-[var(--fc-coral)]">
         {compareHidden.map((hidden) => (
           <p key={`hidden-${hidden.side}`} data-testid={`compare-cleared-${hidden.side}`}>
             {hidden.side.toUpperCase()} is temporarily unavailable: {labelFor(hidden.profileId)} was observed after{' '}

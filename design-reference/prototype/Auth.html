@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FloatChat — Sign in</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<style>
+/* Ocean tokens, matching the app the gate opens into. The design-system
+   component classes are used as-is; --color-accent / --color-surface are rebound
+   here so .btn-primary, .input and .card carry the product's palette. */
+:root{--fc-bg:#071820;--fc-panel:#0d2530;--fc-panel-2:#102f3a;--fc-line:rgba(139,203,196,.13);--fc-line-2:rgba(139,203,196,.26);--fc-teal:#2fa79f;--fc-teal-bright:#59c8be;--fc-aqua:#8bcbc4;--fc-coral:#d56d50;--fc-text:#e4eeec;--fc-muted:rgba(228,238,236,.58);--fc-mono:"IBM Plex Mono",ui-monospace,monospace}
+html,body{height:100%}
+body{margin:0;background:var(--fc-bg);color:var(--fc-text);overflow:hidden}
+a{color:var(--fc-aqua);text-underline-offset:3px}a:hover{color:var(--fc-teal-bright)}
+.auth-stage{position:relative;height:100vh;width:100%;overflow:hidden;--color-accent:var(--fc-teal-bright);--color-surface:var(--fc-panel);--color-bg:var(--fc-bg);--color-text:var(--fc-text);--color-divider:var(--fc-line-2)}
+.fc-hero-canvas{position:absolute;inset:0;width:100%;height:100%}
+.auth-centre{position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:var(--space-3);padding:var(--space-4);overflow:auto}
+.auth-centre>*{flex:0 0 auto}
+.auth-card{width:min(420px,100%);margin-top:auto;padding:var(--space-4);border-radius:var(--radius-lg);background:color-mix(in srgb,var(--fc-panel) 92%,transparent);border:1px solid var(--fc-line-2)}
+.auth-head{margin-bottom:var(--space-3)}
+.auth-brand{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-heading);font-size:14px;color:var(--fc-muted)}
+.auth-mark{display:inline-flex;align-items:flex-end;gap:2px;height:13px}
+.auth-mark span{width:3px;background:var(--fc-teal-bright);border-radius:1px}
+.auth-mark span:nth-child(1){height:6px}.auth-mark span:nth-child(2){height:13px}.auth-mark span:nth-child(3){height:9px;background:var(--fc-coral)}
+.auth-title{font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:22px;letter-spacing:-.015em;margin:10px 0 4px}
+.auth-lede{margin:0;font-size:13px;line-height:1.55;color:var(--fc-muted);text-wrap:pretty}
+.auth-modes{display:flex;gap:2px;margin-bottom:var(--space-3);border-bottom:1px solid var(--fc-line)}
+.auth-mode{background:none;border:0;padding:8px 12px;font:inherit;font-size:13px;color:var(--fc-muted);cursor:pointer;border-radius:var(--radius-md) var(--radius-md) 0 0}
+.auth-mode:hover{color:var(--fc-text);background:color-mix(in srgb,var(--fc-teal) 10%,transparent)}
+.auth-mode.is-on{color:var(--fc-text);box-shadow:inset 0 -2px 0 var(--fc-teal-bright)}
+.auth-hint{margin:3px 0 0;font-size:11px;min-height:14px;color:var(--fc-muted)}
+.auth-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:2px 0 var(--space-3)}
+.auth-check{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--fc-text);cursor:pointer}
+.auth-check input{width:15px;height:15px;accent-color:var(--fc-teal-bright);cursor:pointer}
+.auth-forgot{font-size:12.5px}
+.auth-error{margin:0 0 var(--space-2);font-size:12.5px;color:#f0b9a6}
+.auth-busy{display:inline-flex;align-items:center;gap:8px}
+.auth-spinner{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--fc-line-2);border-top-color:var(--fc-teal-bright);animation:auth-spin .9s linear infinite}
+@keyframes auth-spin{to{transform:rotate(360deg)}}
+.auth-switch{display:flex;align-items:center;justify-content:center;gap:4px;margin:var(--space-3) 0 0;font-size:12.5px;color:var(--fc-muted)}
+.auth-foot{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--fc-line)}
+.auth-note{font-size:11px;color:var(--fc-muted);text-align:center}
+.auth-attrib{margin:0 0 auto;text-align:center;max-width:420px;font-family:var(--fc-mono);font-size:10.5px;color:var(--fc-muted)}
+.auth-boot{display:grid;place-items:center;height:100vh;font-family:var(--fc-mono);font-size:12px;color:var(--fc-muted)}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<div id="root"><div class="auth-boot">Loading…</div></div>
+<script src="fc-session.js"></script>
+<script type="text/babel" src="fc-core.jsx"></script>
+<script type="text/babel" src="fc-hero.jsx"></script>
+<script type="text/babel" src="fc-auth.jsx"></script>
+<script type="text/babel">
+FC.init(null);
+window.FCAuthMount();
+</script>
+</body>
+</html>

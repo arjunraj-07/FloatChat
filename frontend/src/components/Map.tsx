@@ -46,10 +46,10 @@ interface Props {
 }
 
 const COLORS = {
-  overview: '#8a8983',
-  selected: '#0d366b',
-  sameFloat: '#2a78d6',
-  otherFloat: '#86b6ef',
+  overview: '#3d4d54',
+  selected: '#e6f2f0',
+  sameFloat: '#8bcbc4',
+  otherFloat: '#175a66',
 };
 
 /** Room kept clear along the bottom of a fitted view, where the legend sits. */
@@ -147,15 +147,15 @@ export default function Map({ mode, profiles, boundsProfiles, selectedProfileId,
     <MapContainer
       center={[17.5, 62.5]}
       zoom={5}
-      style={{ height: '100%', width: '100%' }}
+      style={{ height: '100%', width: '100%', backgroundColor: '#081b23' }}
       scrollWheelZoom
     >
       <FollowContainerSize />
       <FitToMarkers boundsKey={boundsKey} points={points} />
       <PanToSelection target={selected ? [selected.latitude, selected.longitude] : null} />
       <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution="&copy; OpenStreetMap contributors"
+        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        attribution="&copy; <a href='https://carto.com/'>CARTO</a>"
       />
       {track.length > 1 && (
         <Polyline positions={track} pathOptions={{ color: COLORS.sameFloat, weight: 2, opacity: 0.7 }} />
@@ -177,8 +177,8 @@ export default function Map({ mode, profiles, boundsProfiles, selectedProfileId,
             center={[p.latitude, p.longitude]}
             radius={isSelected ? 10 : mode === 'overview' ? 6 : 7}
             pathOptions={{
-              color: mode === 'overview' ? COLORS.overview : '#ffffff',
-              weight: 2,
+              color: mode === 'overview' ? 'rgba(139,203,196,0.1)' : 'rgba(8,27,35,0.9)',
+              weight: 1,
               fillColor: color,
               fillOpacity: mode === 'overview' ? 0.35 : 0.95,
             }}

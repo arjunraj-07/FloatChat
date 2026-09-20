@@ -297,12 +297,12 @@ export function colourFraction(scale: ColourScale, value: number): number {
 
 /** Sequential single-hue ramps, light to dark (ColorBrewer Oranges and Blues). */
 export const RAMPS: Record<Variable, string[]> = {
-  temp: ['#fdd0a2', '#fdae6b', '#f16913', '#d94801', '#8c2d04'],
-  psal: ['#c6dbef', '#9ecae1', '#4292c6', '#2171b5', '#08306b'],
+  temp: ['#0c2f3c', '#1d5e6e', '#369794', '#6ac3a7', '#d4f0d3'],
+  psal: ['#0c2f3c', '#1b5674', '#3b86ae', '#7eb6d6', '#e4f3fa'],
 };
 
 /** Neutral grey for levels with no valid value; never on a ramp. */
-export const MISSING_COLOUR = '#a8a29e';
+export const MISSING_COLOUR = '#3d4d54';
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = Number.parseInt(hex.slice(1), 16);
@@ -328,8 +328,8 @@ export function sampleColour(sample: DepthSample, scale: ColourScale | null, var
 
 /** Marker colours on the globe and depth scene, matching the 2D map. */
 export const ROLE_COLOURS = {
-  overview: '#8a8983',
-  selected: '#0d366b',
-  sameFloat: '#2a78d6',
-  otherFloat: '#86b6ef',
+  overview: '#3d4d54',
+  selected: '#e6f2f0',
+  sameFloat: '#8bcbc4',
+  otherFloat: '#175a66',
 };

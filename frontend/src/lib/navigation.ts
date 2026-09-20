@@ -6,7 +6,7 @@
  * query session, calls the model or runs a query.
  */
 
-export type SectionId = 'map' | 'assistant' | 'compare' | 'about';
+export type SectionId = 'map' | 'assistant' | 'compare' | 'analysis' | 'about';
 
 /**
  * Section ids are stable state; the labels are what people read. The ids keep
@@ -17,6 +17,7 @@ export const SECTIONS: readonly { id: SectionId; label: string }[] = [
   { id: 'map', label: 'Explore' },
   { id: 'assistant', label: 'AI Assistant' },
   { id: 'compare', label: 'Compare' },
+  { id: 'analysis', label: 'Analysis' },
   { id: 'about', label: 'About' },
 ];
 

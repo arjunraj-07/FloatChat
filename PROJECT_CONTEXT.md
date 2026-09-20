@@ -2024,6 +2024,8 @@ Other sensible steps, in order:
    reasons. A thermocline *thickness* - as opposed to the estimated depth
    §5s reports - would need a layer definition this method does not have.
 
+8. **Phase 2 UI Redesign complete.** A new ocean-themed design system is integrated throughout the frontend, adding the Analysis workspace, Dive View, floating Widget, and overhauled auth and navigation flows.
+
 Standing constraints: the provider stays configurable and backend-only, API
 keys never appear in frontend code, and the model never computes, narrates or
 estimates a scientific value.

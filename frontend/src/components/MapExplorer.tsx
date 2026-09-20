@@ -27,6 +27,7 @@ import type {
   PlanValidationResponse,
   Variable,
 } from '@/lib/planContract.ts';
+
 import { type DraftForm, describePlan } from '@/lib/draftPlan.ts';
 import type { SessionState } from '@/lib/querySession.ts';
 import type { CoverageInfo, ViewMode, WoaMatchResponse } from '@/lib/explorerModel.ts';
@@ -44,6 +45,7 @@ import ProfilePanel from './ProfilePanel';
 import QueryBuilder from './QueryBuilder';
 import TimeNavigator from './TimeNavigator';
 import type { TimeNavigatorView } from './useTimeNavigator';
+import DiveView from './DiveView';
 
 function SceneLoading({ label }: { label: string }) {
   return (
@@ -126,6 +128,7 @@ export default function MapExplorer({
   // This panel stays mounted while another section is shown, so the choice to
   // explore over time survives navigation without living in the shell.
   const [timeOpen, setTimeOpen] = useState(false);
+  const [diveProfileId, setDiveProfileId] = useState<string | null>(null);
   useEffect(() => {
     if (drawerOpen) closeRef.current?.focus();
   }, [drawerOpen]);
@@ -179,6 +182,7 @@ export default function MapExplorer({
     waiting: { text: 'Checking…', tone: 'chip-default' },
   };
   const chip = statusChip[status];
+  const diveProfile = diveProfileId ? response?.results?.profiles.find(p => p.profile_id === diveProfileId) : null;
 
   return (
     <div data-testid="ws-map" className="flex flex-col">
@@ -188,7 +192,7 @@ export default function MapExplorer({
 
       {/* Selection bar. Sticky, so the filters stay reachable while reading
           the measurements further down the page. */}
-      <div className="sticky top-0 z-[1100] flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[var(--divider)] bg-[var(--surface)] px-4 py-2">
+      <div className="sticky top-0 z-[1100] flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[rgba(139,203,196,0.15)] bg-[var(--fc-bg)] px-4 py-2">
         <button
           ref={toggleRef}
           type="button"
@@ -196,58 +200,58 @@ export default function MapExplorer({
           aria-expanded={drawerOpen}
           aria-controls="filter-drawer"
           onClick={() => (drawerOpen ? closeDrawer() : onDrawerOpenChange(true))}
-          className="button button-outline button-small"
+          className="fc-btn fc-btn-sm"
         >
           {drawerOpen ? 'Close filters' : 'Filters'}
         </button>
 
         <p
           data-testid="query-summary"
-          className="min-w-0 flex-1 basis-48 truncate text-sm text-[var(--ink)]"
+          className="min-w-0 flex-1 basis-48 truncate text-sm text-[var(--fc-fg)]"
           title={plan ? describePlan(plan) : undefined}
         >
           {selection ? (
             summaryParts.map((part, index) => (
               <span key={part}>
-                {index > 0 && <span className="text-[var(--muted)]"> · </span>}
+                {index > 0 && <span className="text-[var(--fc-muted)]"> · </span>}
                 <span
                   data-pending={pending.includes(part) ? 'true' : undefined}
-                  className={pending.includes(part) ? 'pending-part' : undefined}
+                  className={pending.includes(part) ? 'pending-part text-[var(--fc-teal)]' : undefined}
                 >
                   {selection[part]}
                 </span>
               </span>
             ))
           ) : (
-            <span className="text-[var(--muted)]">Reading the dataset…</span>
+            <span className="text-[var(--fc-muted)]">Reading the dataset…</span>
           )}
         </p>
 
         <OutcomeBadge validation={validation} checking={session.validating || (plan !== null && validation === null)} />
 
         {coverage?.snapshot?.is_fallback && (
-          <span data-testid="dataset-fallback" className="chip chip-ochre" title={coverage.snapshot.reason ?? undefined}>
+          <span data-testid="dataset-fallback" className="fc-badge fc-badge-warn" title={coverage.snapshot.reason ?? undefined}>
             Historical 2024 data
           </span>
         )}
 
         {chip && (
-          <span data-testid="results-status" role="status" className={`chip ${chip.tone}`}>
+          <span data-testid="results-status" role="status" className={`fc-badge ${chip.tone === 'chip-teal' ? 'fc-badge-ok' : chip.tone === 'chip-ochre' ? 'fc-badge-warn' : 'fc-badge-default'}`}>
             {chip.text}
           </span>
         )}
 
         {status === 'invalid' && blockedReason && (
-          <span data-testid="blocked-reason" className="hidden text-xs text-[var(--muted)] xl:inline">
+          <span data-testid="blocked-reason" className="hidden text-xs text-[var(--fc-muted)] xl:inline">
             {blockedReason}
           </span>
         )}
 
         {session.executionError && (
-          <p className="w-full text-xs text-[var(--coral)]">Could not load results: {session.executionError}</p>
+          <p className="w-full text-xs text-[var(--fc-coral)]">Could not load results: {session.executionError}</p>
         )}
         {stale && (
-          <p data-testid="stale-results" className="w-full text-xs text-[var(--ochre)]">
+          <p data-testid="stale-results" className="w-full text-xs text-[#d56d50]">
             Filters changed. The results below are from the previous selection.
           </p>
         )}
@@ -255,51 +259,54 @@ export default function MapExplorer({
 
       {/* The map owns the first screen ------------------------------------- */}
       <div className="relative">
-        <aside
-          id="filter-drawer"
-          data-testid="filter-drawer"
-          aria-label="Filters"
-          hidden={!drawerOpen}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') closeDrawer();
-          }}
-          className="filter-drawer absolute inset-y-0 left-0 z-[1050] flex w-[22rem] max-w-[92vw] flex-col rounded-none border-y-0 border-l-0 shadow-xl"
-        >
-          <div className="card-head">
-            <h2 className="text-sm font-semibold text-[var(--ink)]">Filters</h2>
-            <button
-              ref={closeRef}
-              type="button"
-              data-testid="filters-close"
-              onClick={closeDrawer}
-              className="rounded px-2 text-sm text-[var(--muted)] hover:bg-[var(--surface-quiet)]"
-              aria-label="Close filters"
+        {drawerOpen && (
+          <div className="fc-drawer-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) closeDrawer(); }}>
+            <aside
+              id="filter-drawer"
+              data-testid="filter-drawer"
+              aria-label="Filters"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') closeDrawer();
+              }}
+              className="fc-drawer"
             >
-              ✕
-            </button>
+              <header className="fc-drawer-head">
+                <div><span className="fc-kicker">Filters</span><h2 className="fc-panel-title">Narrow the observations</h2></div>
+                <button
+                  ref={closeRef}
+                  type="button"
+                  data-testid="filters-close"
+                  onClick={closeDrawer}
+                  className="fc-icon-btn"
+                  aria-label="Close filters"
+                >
+                  ✕
+                </button>
+              </header>
+              <div className="fc-drawer-body">
+                <QueryBuilder
+                  form={session.form}
+                  issues={session.formIssues}
+                  capabilities={capabilities}
+                  mode={mode}
+                  onChange={onFormChange}
+                />
+                <PlanPreview
+                  plan={plan}
+                  validation={validation}
+                  validating={session.validating}
+                  stale={plan !== null && validation === null}
+                  transportError={session.validationError}
+                  mode={mode}
+                />
+              </div>
+            </aside>
           </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-            <QueryBuilder
-              form={session.form}
-              issues={session.formIssues}
-              capabilities={capabilities}
-              mode={mode}
-              onChange={onFormChange}
-            />
-            <PlanPreview
-              plan={plan}
-              validation={validation}
-              validating={session.validating}
-              stale={plan !== null && validation === null}
-              transportError={session.validationError}
-              mode={mode}
-            />
-          </div>
-        </aside>
+        )}
 
         <div
           data-testid="map-card"
-          className="relative flex h-[calc(100dvh-7rem)] min-h-[420px] flex-col border-b border-[var(--divider)] bg-[var(--surface)]"
+          className="relative flex h-[calc(100dvh-7rem)] min-h-[420px] flex-col border-b border-[rgba(139,203,196,0.15)] bg-[#050f16]"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
             <div role="group" aria-label="Map view" className="segmented">
@@ -312,7 +319,7 @@ export default function MapExplorer({
                     data-testid={`mapview-${view}`}
                     aria-pressed={active}
                     onClick={() => onMapViewChange(view)}
-                    className={active ? 'is-selected' : ''}
+                    className={active ? 'fc-seg-btn is-selected' : 'fc-seg-btn'}
                   >
                     {view === 'regional' ? 'Map' : 'Globe'}
                   </button>
@@ -411,25 +418,25 @@ export default function MapExplorer({
       {/* Measurements, below the map, in ordinary page flow ----------------- */}
       <div data-testid="measurements" className="mx-auto w-full max-w-[1200px] space-y-4 px-4 py-4">
         {status === 'loading' && !hasProfiles && (
-          <div data-testid="results-loading" role="status" className="card p-5 text-sm">
-            <p className="font-semibold text-[var(--ink)]">Loading results…</p>
-            <p className="mt-1 text-[var(--muted)]">Reading the cached measurements for these filters.</p>
+          <div data-testid="results-loading" role="status" className="fc-panel">
+            <p className="font-semibold text-[var(--fc-fg)]">Loading results…</p>
+            <p className="mt-1 text-[var(--fc-muted)]">Reading the cached measurements for these filters.</p>
           </div>
         )}
 
         {status === 'invalid' && (
-          <div data-testid="results-invalid" className="card p-5 text-sm">
-            <p className="font-semibold text-[var(--ochre)]">These filters cannot be used yet</p>
-            <p className="mt-1 text-[var(--muted)]">
+          <div data-testid="results-invalid" className="fc-panel">
+            <p className="font-semibold text-[var(--fc-ochre)]">These filters cannot be used yet</p>
+            <p className="mt-1 text-[var(--fc-muted)]">
               {blockedReason ?? 'Correct the highlighted fields in Filters.'}
             </p>
           </div>
         )}
 
         {status === 'unavailable' && (
-          <div data-testid="results-unavailable" className="card p-5 text-sm">
-            <p className="font-semibold text-[var(--ink)]">Nothing in the dataset matches</p>
-            <p className="mt-1 text-[var(--muted)]">
+          <div data-testid="results-unavailable" className="fc-panel">
+            <p className="font-semibold text-[var(--fc-fg)]">Nothing in the dataset matches</p>
+            <p className="mt-1 text-[var(--fc-muted)]">
               No cached measurement falls inside this region, date range and depth range. Nothing was
               filled in or estimated.
             </p>
@@ -437,20 +444,20 @@ export default function MapExplorer({
         )}
 
         {response && !response.executed && (
-          <div className="card p-5 text-sm">
-            <p className="font-semibold text-[var(--ochre)]">Not run: {response.outcome.replace(/_/g, ' ')}</p>
-            <p className="mt-1 text-[var(--muted)]">{response.refusal?.message}</p>
+          <div className="fc-panel">
+            <p className="font-semibold text-[var(--fc-ochre)]">Not run: {response.outcome.replace(/_/g, ' ')}</p>
+            <p className="mt-1 text-[var(--fc-muted)]">{response.refusal?.message}</p>
           </div>
         )}
 
         {status === 'empty' && (
-          <div data-testid="no-matching" className="card p-5 text-sm">
-            <p className="font-semibold text-[var(--ink)]">No measurements match</p>
-            <p className="mt-1 text-[var(--muted)]">
+          <div data-testid="no-matching" className="fc-panel">
+            <p className="font-semibold text-[var(--fc-fg)]">No measurements match</p>
+            <p className="mt-1 text-[var(--fc-muted)]">
               Nothing in the cached data falls inside this region, date range and depth range. Nothing was
               filled in or estimated.
             </p>
-            <button type="button" data-testid="open-assistant" onClick={onOpenAssistant} className="button button-outline mt-3">
+            <button type="button" data-testid="open-assistant" onClick={onOpenAssistant} className="fc-btn mt-3 w-max">
               Ask the assistant
             </button>
           </div>
@@ -458,7 +465,7 @@ export default function MapExplorer({
 
         {hasProfiles && (
           <>
-            <div className="card flex flex-col overflow-hidden">
+            <div className="fc-panel flex flex-col overflow-hidden p-0">
               <ProfilePanel
                 response={response!}
                 activeProfileId={activeProfileId}
@@ -466,18 +473,23 @@ export default function MapExplorer({
                 mode={mode}
                 woa={woa}
                 visibleProfiles={visibleProfiles}
+                onDiveIn={setDiveProfileId}
               />
             </div>
-            <DetailsPanel
-              response={response!}
-              activeProfileId={activeProfileId}
-              woa={woa}
-              coverage={coverage}
-              mode={mode}
-            />
+            <div className="fc-panel">
+              <DetailsPanel
+                response={response!}
+                activeProfileId={activeProfileId}
+                woa={woa}
+                coverage={coverage}
+                mode={mode}
+              />
+            </div>
           </>
         )}
       </div>
+
+      {diveProfile && <DiveView p={diveProfile} onClose={() => setDiveProfileId(null)} />}
     </div>
   );
 }

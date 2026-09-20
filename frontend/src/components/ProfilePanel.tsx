@@ -53,6 +53,7 @@ interface Props {
   woa: WoaMatchResponse | null;
   /** Returned profiles observed up to the navigator's time. */
   visibleProfiles: ExecutedProfile[];
+  onDiveIn?: (profileId: string) => void;
 }
 
 const VARIABLE_LABEL: Record<Variable, string> = { temp: 'Temperature', psal: 'Salinity' };
@@ -64,6 +65,7 @@ export default function ProfilePanel({
   mode,
   woa,
   visibleProfiles,
+  onDiveIn,
 }: Props) {
   const [chartBox, chartHeight] = useElementHeight(360);
   const [chosenVariable, setChosenVariable] = useState<Variable>('temp');
@@ -101,15 +103,15 @@ export default function ProfilePanel({
     <section
       data-testid="profile-panel"
       aria-labelledby="profile-heading"
-      className="inspector flex h-full min-h-0 flex-col"
+      className="fc-panel flex h-full min-h-0 flex-col border-x-0 border-b-0 rounded-none sm:rounded-lg sm:border"
     >
       <div className="space-y-2 px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="profile-heading" className="text-sm font-semibold text-[var(--ink)]">
+          <h2 id="profile-heading" className="fc-kicker m-0">
             Measurements
           </h2>
           {position && active && (
-            <p data-testid="profile-position" className="tiny">
+            <p data-testid="profile-position" className="text-xs text-[var(--fc-muted)] font-mono">
               {position.index + 1} of {position.count}
               {position.count < floatTotal ? ` shown (${floatTotal} in this result)` : ''}
             </p>
@@ -117,12 +119,12 @@ export default function ProfilePanel({
         </div>
 
         {/* What you are looking at: float, observation, variable. */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 mt-1">
           <label className="sr-only" htmlFor="float-select">Float</label>
           <select
             id="float-select"
             data-testid="float-select"
-            className="field-input min-h-[34px] w-auto flex-1 py-1 text-sm"
+            className="fc-input min-h-[34px] w-auto flex-1 py-1 text-sm font-mono"
             value={active?.platform ?? ''}
             onChange={(e) => {
               const group = floats.find((g) => g.platform === e.target.value);
@@ -146,7 +148,7 @@ export default function ProfilePanel({
                 data-testid="prev-profile"
                 disabled={!position.previousId}
                 onClick={() => position.previousId && onSelectProfile(position.previousId)}
-                className="button button-outline button-small"
+                className="fc-btn fc-btn-ghost px-2"
                 aria-label="Earlier observation"
               >
                 ‹
@@ -155,7 +157,7 @@ export default function ProfilePanel({
               <select
                 id="profile-select"
                 data-testid="profile-select"
-                className="field-input min-h-[34px] min-w-0 flex-1 py-1 text-sm"
+                className="fc-input min-h-[34px] min-w-0 flex-1 py-1 text-sm font-mono"
                 value={active.profile_id}
                 onChange={(e) => onSelectProfile(e.target.value)}
               >
@@ -170,15 +172,25 @@ export default function ProfilePanel({
                 data-testid="next-profile"
                 disabled={!position.nextId}
                 onClick={() => position.nextId && onSelectProfile(position.nextId)}
-                className="button button-outline button-small"
+                className="fc-btn fc-btn-ghost px-2"
                 aria-label="Later observation"
               >
                 ›
               </button>
+              {onDiveIn && (
+                <button
+                  type="button"
+                  data-testid="dive-in"
+                  onClick={() => onDiveIn(active.profile_id)}
+                  className="fc-btn fc-btn-outline ml-2"
+                >
+                  Dive in
+                </button>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div role="tablist" aria-label="Variable" className="segmented">
+              <div role="tablist" aria-label="Variable" className="fc-segmented">
                 {requested.map((name) => (
                   <button
                     key={name}
@@ -187,18 +199,28 @@ export default function ProfilePanel({
                     data-testid={`variable-tab-${name}`}
                     aria-selected={variable === name}
                     onClick={() => setChosenVariable(name)}
-                    className={variable === name ? 'is-selected' : ''}
+                    className={variable === name ? 'is-on' : ''}
                   >
                     {VARIABLE_LABEL[name]}
                   </button>
                 ))}
               </div>
-              <p className="tiny mono">
-                {formatPosition(active.latitude, active.longitude)} ·{' '}
-                <Term term="depth" mode={mode}>depths</Term> {active.depth_min_m.toFixed(0)}–
-                {active.depth_max_m.toFixed(0)} m
+              <p
+                data-testid="profile-levels-note"
+                className={`text-xs font-mono text-[var(--fc-muted)] ${
+                  active.variables[variable]?.valid_levels > 0 ? '' : 'invisible'
+                }`}
+              >
+                {active.variables[variable]?.valid_levels ?? 0} level
+                {active.variables[variable]?.valid_levels === 1 ? '' : 's'}
               </p>
             </div>
+
+            <p className="tiny mono">
+              {formatPosition(active.latitude, active.longitude)} ·{' '}
+              <Term term="depth" mode={mode}>depths</Term> {active.depth_min_m.toFixed(0)}–
+              {active.depth_max_m.toFixed(0)} m
+            </p>
 
             {/* The limitation that matters for what is on the chart. */}
             {shownAvailability && shownAvailability.info.state !== 'available' && (

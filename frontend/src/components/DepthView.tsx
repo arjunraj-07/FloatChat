@@ -88,19 +88,19 @@ function buildReference(frame: RegionFrame): Reference {
 
   for (let lon = Math.ceil(frame.west / step) * step; lon <= frame.east; lon += step) {
     grid.push(...toScene(frame, frame.south, lon, 0), ...toScene(frame, frame.north, lon, 0));
-    const sprite = textSprite(hemisphere(lon, 'E', 'W'), labelHeight);
+    const sprite = textSprite(hemisphere(lon, 'E', 'W'), labelHeight, '#8bcbc4');
     const [x, , z] = toScene(frame, frame.south, lon, 0);
     sprite.position.set(x, labelHeight * 0.6, z + labelHeight * 1.2);
     labels.add(sprite);
   }
   for (let lat = Math.ceil(frame.south / step) * step; lat <= frame.north; lat += step) {
     grid.push(...toScene(frame, lat, frame.west, 0), ...toScene(frame, lat, frame.east, 0));
-    const sprite = textSprite(hemisphere(lat, 'N', 'S'), labelHeight, '#334155', 'right');
+    const sprite = textSprite(hemisphere(lat, 'N', 'S'), labelHeight, '#8bcbc4', 'right');
     const [x, , z] = toScene(frame, lat, frame.west, 0);
     sprite.position.set(x - labelHeight * 0.4, labelHeight * 0.6, z);
     labels.add(sprite);
   }
-  const north = textSprite('N ↑', labelHeight * 1.2, '#0f172a');
+  const north = textSprite('N ↑', labelHeight * 1.2, '#e6f2f0');
   const [nx, , nz] = toScene(frame, frame.north, (frame.west + frame.east) / 2, 0);
   north.position.set(nx, labelHeight, nz - labelHeight * 1.2);
   labels.add(north);
@@ -117,7 +117,7 @@ function buildReference(frame: RegionFrame): Reference {
   for (const depth of ticks) {
     const [x, y, z] = corner(depth);
     axis.push(x, y, z, x - labelHeight * 0.5, y, z);
-    const sprite = textSprite(`${depth} m`, labelHeight * 0.9, '#334155', 'right');
+    const sprite = textSprite(`${depth} m`, labelHeight * 0.9, '#8bcbc4', 'right');
     sprite.position.set(x - labelHeight * 0.7, y, z);
     labels.add(sprite);
     // The label is right-aligned at its position; its left edge is one
@@ -125,7 +125,7 @@ function buildReference(frame: RegionFrame): Reference {
     axisLabelEdges.push([x - labelHeight * 0.7 - sprite.scale.x, y, z]);
   }
   const [, bottom] = corner(ticks[ticks.length - 1]);
-  const title = textSprite(`Depth, actual metres (drawn ×${frame.exaggeration})`, labelHeight * 0.9, '#0f172a', 'left');
+  const title = textSprite(`Depth, actual metres (drawn ×${frame.exaggeration})`, labelHeight * 0.9, '#e6f2f0', 'left');
   const [cx, , cz] = corner(0);
   title.position.set(cx + labelHeight * 0.4, bottom - labelHeight * 1.2, cz);
   labels.add(title);
@@ -272,15 +272,15 @@ function DepthScene({
 
   return (
     <>
-      <color attach="background" args={['#f8fafc']} />
+      <color attach="background" args={['#050f16']} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={-1}>
         <planeGeometry args={[reference.plane.width, reference.plane.depth]} />
-        <meshBasicMaterial color="#bfdbfe" transparent opacity={0.35} depthWrite={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial color="#0c2f3c" transparent opacity={0.35} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
-      <LineBuffer positions={reference.grid} color="#93c5fd" />
-      <LineBuffer positions={reference.axis} color="#334155" />
+      <LineBuffer positions={reference.grid} color="#2fa79f" />
+      <LineBuffer positions={reference.axis} color="#8bcbc4" />
       <primitive object={reference.labels} />
-      <LineBuffer positions={columns.other} color="#94a3b8" opacity={0.8} />
+      <LineBuffer positions={columns.other} color="#175a66" opacity={0.8} />
       <LineBuffer positions={columns.active} color={ROLE_COLOURS.selected} />
       <InstancedPoints
         positions={columns.tops}
@@ -313,8 +313,8 @@ function DepthScene({
       />
       {highlight && (
         <>
-          <InstancedPoints positions={highlight} colours="#0f172a" shape="sphere" size={unit * 0.016} wireframe />
-          <InstancedPoints positions={highlight} colours="#f8fafc" shape="sphere" size={unit * 0.0095} opacity={0.35} />
+          <InstancedPoints positions={highlight} colours="#e6f2f0" shape="sphere" size={unit * 0.016} wireframe />
+          <InstancedPoints positions={highlight} colours="#050f16" shape="sphere" size={unit * 0.0095} opacity={0.35} />
         </>
       )}
       <ContextLossWatcher onLost={onLost} />
@@ -427,19 +427,19 @@ export default function DepthView({
   const countsLine = `${visibleProfiles.length} of ${totalCount} profiles through ${throughLabel ?? '—'}: ${counts.measured} measured, ${counts.missing} without a value, ${counts.derived} derived`;
 
   return (
-    <div data-testid="depth-view" className="absolute inset-0 flex flex-col bg-slate-50 sm:flex-row">
+    <div data-testid="depth-view" className="absolute inset-0 flex flex-col bg-[#050f16] sm:flex-row">
       {/* Controls and legend, beside the scene -------------------------------- */}
       <aside
         data-testid="depth-panel"
         aria-label="Depth scene controls and legend"
-        className="flex max-h-[50%] shrink-0 flex-col gap-2 overflow-y-auto border-b border-slate-200 bg-white p-2 text-[11px] text-slate-700 sm:max-h-none sm:w-60 sm:border-b-0 sm:border-r"
+        className="flex max-h-[50%] shrink-0 flex-col gap-2 overflow-y-auto border-b border-[rgba(139,203,196,0.15)] bg-[#09222c] p-2 text-[11px] text-[var(--fc-muted)] sm:max-h-none sm:w-60 sm:border-b-0 sm:border-r"
       >
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
             data-testid="depth-back"
             onClick={onBack}
-            className="rounded-md bg-sky-700 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-sky-800"
+            className="fc-btn fc-btn-primary fc-btn-sm"
           >
             ‹ Back to globe
           </button>
@@ -447,14 +447,14 @@ export default function DepthView({
             type="button"
             data-testid="depth-reset"
             onClick={() => setResetRequest((n) => n + 1)}
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 hover:bg-slate-50"
+            className="fc-btn fc-btn-sm"
           >
             Reset view
           </button>
         </div>
 
         <div data-testid="depth-legend">
-          <div role="radiogroup" aria-label="Colour by" className="mb-1 flex rounded border border-slate-300 p-0.5">
+          <div role="radiogroup" aria-label="Colour by" className="mb-1 flex rounded border border-[rgba(139,203,196,0.15)] p-0.5">
             {requested.map((name) => (
               <button
                 key={name}
@@ -463,13 +463,13 @@ export default function DepthView({
                 aria-checked={variable === name}
                 data-testid={`depth-var-${name}`}
                 onClick={() => onVariableChange(name)}
-                className={`flex-1 rounded px-2 py-0.5 ${variable === name ? 'bg-slate-800 font-semibold text-white' : 'hover:bg-slate-100'}`}
+                className={`flex-1 rounded px-2 py-0.5 ${variable === name ? 'bg-[#0d366b] font-semibold text-[var(--fc-fg)]' : 'hover:bg-[#10303e]'}`}
               >
                 {VARIABLES[name].label}
               </button>
             ))}
           </div>
-          <p className="font-medium text-slate-900">
+          <p className="font-medium text-[var(--fc-fg)]">
             {meta.label} ({meta.unit})
           </p>
           {scale ? (
@@ -483,17 +483,17 @@ export default function DepthView({
                 <span>{formatValue(variable, scale.min)}</span>
                 <span>{formatValue(variable, scale.max)}</span>
               </p>
-              <p className="text-slate-500">Scale fixed for this result.</p>
+              <p className="text-[var(--fc-muted)]">Scale fixed for this result.</p>
             </>
           ) : (
-            <p className="text-amber-900">No valid {meta.label.toLowerCase()} in this result.</p>
+            <p className="text-[var(--fc-warn)]">No valid {meta.label.toLowerCase()} in this result.</p>
           )}
         </div>
 
         {selectedSample && selectedProfile && (
-          <section data-testid="depth-sample" aria-label="Selected sample" className="rounded-md border border-slate-300 bg-slate-50 p-1.5 text-slate-800">
+          <section data-testid="depth-sample" aria-label="Selected sample" className="rounded-md border border-[rgba(139,203,196,0.15)] bg-[#071820] p-1.5 text-[var(--fc-fg)]">
             <p className="font-semibold">{profileLabel(selectedProfile)}</p>
-            <p className="text-slate-600">Profile {selectedProfile.profile_id} · observed {formatUtc(selectedProfile.time)}</p>
+            <p className="text-[var(--fc-muted)]">Profile {selectedProfile.profile_id} · observed {formatUtc(selectedProfile.time)}</p>
             <p title={`${selectedSample.depth} m`}>
               Depth: {selectedSample.depth.toFixed(2)} m (actual
               {selectedSample.kind === 'derived'
@@ -524,11 +524,11 @@ export default function DepthView({
                 disabled={!shallower}
                 onClick={() => shallower && stepTo(shallower)}
                 aria-label="Previous recorded level (shallower)"
-                className="rounded border border-slate-300 bg-white px-1.5 py-0.5 hover:bg-slate-100 disabled:opacity-40"
+                className="rounded border border-[rgba(139,203,196,0.15)] bg-transparent px-1.5 py-0.5 hover:bg-[#10303e] disabled:opacity-40"
               >
                 ▲ Shallower
               </button>
-              <span data-testid="sample-position" className="flex-1 text-center tabular-nums text-slate-600">
+              <span data-testid="sample-position" className="flex-1 text-center tabular-nums text-[var(--fc-muted)]">
                 {at >= 0 ? `Level ${at + 1} of ${levels.length}` : `${levels.length} recorded levels`}
               </span>
               <button
@@ -537,7 +537,7 @@ export default function DepthView({
                 disabled={!deeper}
                 onClick={() => deeper && stepTo(deeper)}
                 aria-label="Next recorded level (deeper)"
-                className="rounded border border-slate-300 bg-white px-1.5 py-0.5 hover:bg-slate-100 disabled:opacity-40"
+                className="rounded border border-[rgba(139,203,196,0.15)] bg-transparent px-1.5 py-0.5 hover:bg-[#10303e] disabled:opacity-40"
               >
                 Deeper ▼
               </button>
@@ -547,12 +547,12 @@ export default function DepthView({
 
         {/* The short fact stays on screen; the longer method explanation is
             one click away rather than occupying the panel. */}
-        <p data-testid="depth-note" className="font-medium text-slate-800">
+        <p data-testid="depth-note" className="font-medium text-[var(--fc-fg)]">
           Depth ×{frame.exaggeration} — axis labels give actual metres. Not underwater tracks.
         </p>
         <details data-testid="depth-method">
-          <summary className="cursor-pointer text-slate-800">How this is drawn</summary>
-          <div className="mt-1 space-y-1 text-slate-600">
+          <summary className="cursor-pointer text-[var(--fc-fg)]">How this is drawn</summary>
+          <div className="mt-1 space-y-1 text-[var(--fc-muted)]">
             <p>{DEPTH_NOTE}</p>
             <p>
               Each column is anchored at its profile&apos;s reported position, and its levels sit at their
@@ -565,13 +565,13 @@ export default function DepthView({
         {/* The key and counts: always shown beside the scene; folded on phones. */}
         <div className="hidden space-y-0.5 sm:block">
           {key}
-          <p data-testid="depth-counts" className="text-slate-600">{countsLine}</p>
+          <p data-testid="depth-counts" className="text-[var(--fc-muted)]">{countsLine}</p>
         </div>
         <details className="sm:hidden">
-          <summary className="cursor-pointer text-slate-800">Key and counts</summary>
+          <summary className="cursor-pointer text-[var(--fc-fg)]">Key and counts</summary>
           <div className="mt-1 space-y-0.5">
             {key}
-            <p className="text-slate-600">{countsLine}</p>
+            <p className="text-[var(--fc-muted)]">{countsLine}</p>
           </div>
         </details>
       </aside>

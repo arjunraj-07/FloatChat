@@ -1,21 +1,5 @@
 'use client';
 
-/**
- * Create an account, sign in, or carry on without one.
- *
- * An ordinary registration form: email, password, and the account type as a
- * choice inside the form rather than a separate page to read first. The
- * account type sets which detail level opens by default and nothing else - it
- * is self-selected, grants no extra access, and changes no measurement.
- *
- * Continuing as a guest is a first-class path, not a fallback: everything
- * except the AI Assistant works without an account.
- *
- * No credential is stored here. The password lives in component state only
- * until the request is sent; the session arrives as an HttpOnly cookie this
- * code cannot read.
- */
-
 import { useEffect, useRef, useState } from 'react';
 
 import {
@@ -27,13 +11,15 @@ import {
   signIn,
   signInProblem,
 } from '@/lib/auth.ts';
+import dynamic from 'next/dynamic';
+
+const IntroScene = dynamic(() => import('./IntroScene'), { ssr: false });
 
 type Mode = 'register' | 'signin';
 
 interface Props {
   onAuthenticated: (session: SessionState) => void;
   onContinuePublic: () => void;
-  /** What this deployment cannot do, as reported by the server. */
   unavailable: UnavailableFeatures | null;
 }
 
@@ -42,17 +28,6 @@ const ROLE_NOTE: Record<AccountRole, string> = {
   scientist: 'QC, provenance and exact values first.',
 };
 
-function Mark() {
-  return (
-    <svg width="30" height="30" viewBox="0 0 36 36" role="img" aria-label="FloatChat">
-      <path d="M7 22.5c3.5-2.2 6.3-2.2 9.3 0 3.1 2.2 6 2.2 9.7 0" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M10.5 18.5h15V9.2c-4.5-2.5-10.5-2.5-15 0v9.3Z" fill="none" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M13.2 9.8V7.2M22.8 9.8V7.2M18 6.9v-2" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <circle cx="18" cy="13.2" r="1.25" fill="currentColor" />
-    </svg>
-  );
-}
-
 export default function AuthScreen({ onAuthenticated, onContinuePublic, unavailable }: Props) {
   const [mode, setMode] = useState<Mode>('register');
   const [role, setRole] = useState<AccountRole>('student');
@@ -60,7 +35,9 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [terms, setTerms] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
+  const signup = mode === 'register';
 
   useEffect(() => {
     emailRef.current?.focus();
@@ -69,6 +46,10 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (busy) return;
+    if (mode === 'register' && !terms) {
+      setError('You must agree to the Terms of Service and Privacy Policy.');
+      return;
+    }
     const problem =
       mode === 'register' ? registrationProblem(email, password) : signInProblem(email, password);
     if (problem) {
@@ -91,129 +72,165 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
   };
 
   return (
-    <main data-testid="auth-screen" className="min-h-screen bg-[var(--page)] px-5 py-10 text-[var(--ink)]">
-      <div className="mx-auto w-full max-w-[420px]">
-        <div className="mb-6 flex items-center gap-2.5 text-[var(--marine)]">
-          <Mark />
-          <span className="brand-word text-[var(--ink)]">
-            Float<span className="text-[var(--teal)]">Chat</span>
-          </span>
-        </div>
+    <div className="auth-stage" data-testid="auth-screen">
+      <div className="absolute inset-0 pointer-events-none opacity-40">
+        <IntroScene
+          markers={[]}
+          searchRegion={null}
+          coverage={null}
+          onSkip={() => {}}
+          onOpenAssistant={() => {}}
+        />
+      </div>
+      <div className="auth-centre">
+        <div className="auth-card">
+          <header className="auth-head">
+            <span className="auth-brand">
+              <span className="auth-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+              FloatChat
+            </span>
+            <h1 className="auth-title">{signup ? 'Create your account' : 'Sign in to FloatChat'}</h1>
+            <p className="auth-lede">{signup ? 'Ask questions of the Argo array and keep your query history across sessions.' : 'Explore the Argo observations that are loaded, and ask the assistant about them.'}</p>
+          </header>
 
-        <section className="card p-6">
-          <div role="group" aria-label="Create account or sign in" className="segmented mb-5 w-full">
-            {(['register', 'signin'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                data-testid={`auth-tab-${value}`}
-                aria-pressed={mode === value}
-                onClick={() => {
-                  setMode(value);
-                  setError(null);
-                }}
-                className={`flex-1 ${mode === value ? 'is-selected' : ''}`}
-              >
-                {value === 'register' ? 'Create account' : 'Sign in'}
-              </button>
-            ))}
+          <div className="auth-modes" role="tablist" aria-label="Authentication mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!signup}
+              className={`auth-mode ${!signup ? 'is-on' : ''}`}
+              onClick={() => { setMode('signin'); setError(null); }}
+              data-testid="auth-tab-signin"
+            >
+              Log in
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={signup}
+              className={`auth-mode ${signup ? 'is-on' : ''}`}
+              onClick={() => { setMode('register'); setError(null); }}
+              data-testid="auth-tab-register"
+            >
+              Sign up
+            </button>
           </div>
 
-          <form onSubmit={submit} className="space-y-4" aria-label={mode === 'register' ? 'Create account' : 'Sign in'}>
-            <div>
-              <label htmlFor="auth-email" className="field-label">Email</label>
+          <form onSubmit={submit} noValidate aria-label={signup ? 'Create account' : 'Sign in'}>
+            <div className="fc-field mb-4">
+              <label htmlFor="auth-email">Email</label>
               <input
                 id="auth-email"
                 data-testid="auth-email"
                 ref={emailRef}
+                className="fc-input"
                 type="email"
                 autoComplete="email"
                 value={email}
                 disabled={busy}
-                onChange={(event) => setEmail(event.target.value)}
-                className="field-input"
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@institute.org"
               />
             </div>
 
-            <div>
-              <label htmlFor="auth-password" className="field-label">Password</label>
+            <div className="fc-field mb-4">
+              <label htmlFor="auth-pw">Password</label>
               <input
-                id="auth-password"
+                id="auth-pw"
                 data-testid="auth-password"
+                className="fc-input"
                 type="password"
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                autoComplete={signup ? 'new-password' : 'current-password'}
                 value={password}
                 disabled={busy}
-                onChange={(event) => setPassword(event.target.value)}
-                className="field-input"
+                onChange={(e) => setPassword(e.target.value)}
               />
-              {mode === 'register' && <p className="tiny mt-1">At least 10 characters.</p>}
+              {signup && <p className="auth-hint">At least 10 characters.</p>}
             </div>
 
-            {mode === 'register' && (
-              <fieldset className="space-y-2">
-                <legend className="field-label">Account type</legend>
-                {(['student', 'scientist'] as const).map((value) => (
-                  <label
-                    key={value}
-                    data-testid={`role-${value}`}
-                    className={`flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 transition ${
-                      role === value
-                        ? 'border-[var(--teal)] bg-[var(--mineral)]'
-                        : 'border-[var(--divider)] hover:border-[var(--outline)]'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="account-role"
-                      value={value}
-                      checked={role === value}
-                      disabled={busy}
-                      onChange={() => setRole(value)}
-                      className="mt-0.5"
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold text-[var(--ink)]">
-                        {value === 'student' ? 'Student' : 'Scientist'}
+            {signup && (
+              <fieldset className="fc-field mb-4 mt-2 border-t border-[var(--fc-line-2)] pt-4">
+                <legend className="fc-mono text-[var(--fc-text)] text-sm mb-3 font-semibold">Account type</legend>
+                <div className="flex flex-col gap-3">
+                  {(['student', 'scientist'] as const).map((v) => (
+                    <label
+                      key={v}
+                      data-testid={`role-${v}`}
+                      className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 transition ${
+                        role === v
+                          ? 'border-[var(--fc-teal-bright)] bg-[rgba(139,203,196,0.1)]'
+                          : 'border-[var(--fc-line-2)] hover:border-[rgba(139,203,196,0.3)]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="account-role"
+                        value={v}
+                        checked={role === v}
+                        disabled={busy}
+                        onChange={() => setRole(v)}
+                        className="mt-1 accent-[var(--fc-teal-bright)] w-4 h-4"
+                      />
+                      <span className="flex flex-col">
+                        <span className="text-sm font-semibold text-[var(--fc-text)]">
+                          {v === 'student' ? 'Student' : 'Scientist'}
+                        </span>
+                        <span className="text-xs text-[var(--fc-muted)] mt-0.5">{ROLE_NOTE[v]}</span>
                       </span>
-                      <span className="tiny">{ROLE_NOTE[value]}</span>
-                    </span>
-                  </label>
-                ))}
-                <p data-testid="auth-role-note" className="tiny">
+                    </label>
+                  ))}
+                </div>
+                <p data-testid="auth-role-note" className="auth-hint mt-3">
                   Self-selected. It sets your starting detail level — not professional verification,
                   and not extra access. Both types see identical measurements.
                 </p>
+                <div className="mt-4 flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="terms-checkbox"
+                    checked={terms}
+                    onChange={(e) => setTerms(e.target.checked)}
+                    className="mt-1 accent-[var(--fc-teal-bright)] w-4 h-4 cursor-pointer"
+                  />
+                  <label htmlFor="terms-checkbox" className="text-xs text-[var(--fc-muted)] cursor-pointer">
+                    I agree to the <a href="/terms" className="text-[var(--fc-teal-bright)] hover:underline" target="_blank" rel="noreferrer">Terms of Service</a> and <a href="/privacy" className="text-[var(--fc-teal-bright)] hover:underline" target="_blank" rel="noreferrer">Privacy Policy</a>.
+                  </label>
+                </div>
               </fieldset>
             )}
 
             {error && (
-              <p data-testid="auth-error" role="alert" className="rounded-md bg-[#f6e6e0] px-3 py-2 text-sm text-[#7d3418]">
+              <p data-testid="auth-error" role="alert" className="auth-error">
                 {error}
               </p>
             )}
 
-            <button type="submit" data-testid="auth-submit" disabled={busy} className="button button-primary w-full">
-              {busy
-                ? mode === 'register' ? 'Creating account…' : 'Signing in…'
-                : mode === 'register' ? 'Create account' : 'Sign in'}
+            <button type="submit" data-testid="auth-submit" disabled={busy} className="fc-btn fc-btn-primary w-full mt-2">
+              {busy ? (
+                <span className="auth-busy">
+                  <span className="auth-spinner"></span>
+                  {signup ? 'Creating account…' : 'Signing in…'}
+                </span>
+              ) : (
+                signup ? 'Create account' : 'Sign in'
+              )}
             </button>
           </form>
 
-          <div className="mt-5 border-t border-[var(--divider)] pt-4">
-            <button type="button" data-testid="auth-public" onClick={onContinuePublic} className="button button-outline w-full">
+          <div className="auth-foot">
+            <button type="button" data-testid="auth-public" onClick={onContinuePublic} className="fc-btn fc-btn-ghost w-full">
               Continue as guest
             </button>
-            <p className="tiny mt-2 text-center">
+            <p className="auth-note">
               Maps, profiles, charts and comparisons all work without an account.
             </p>
           </div>
-        </section>
+        </div>
 
         {unavailable && (
-          <details data-testid="auth-unavailable" className="mt-4">
-            <summary className="tiny cursor-pointer select-none">What this deployment cannot do</summary>
-            <ul className="tiny mt-1.5 space-y-1">
+          <details data-testid="auth-unavailable" className="mt-4 w-full max-w-[420px] mx-auto text-[var(--fc-muted)] border-t border-[var(--fc-line-2)] pt-4">
+            <summary className="text-xs cursor-pointer select-none outline-none font-mono hover:text-[var(--fc-text)]">What this deployment cannot do</summary>
+            <ul className="text-xs mt-2 space-y-1 ml-4 list-disc marker:text-[var(--fc-line-2)]">
               <li>{unavailable.email_verification}</li>
               <li>{unavailable.password_recovery}</li>
               <li>{unavailable.oauth_providers}</li>
@@ -221,6 +238,6 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
           </details>
         )}
       </div>
-    </main>
+    </div>
   );
 }

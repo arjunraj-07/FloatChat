@@ -20,10 +20,10 @@ import { createDefaultForm, formToPlan, summarizePlan } from '../src/lib/draftPl
 
 describe('sections', () => {
   it('names the four workspaces in order, with Explore first and default', () => {
-    assert.deepEqual(SECTIONS.map((s) => s.label), ['Explore', 'AI Assistant', 'Compare', 'About']);
+    assert.deepStrictEqual(SECTIONS.map((s) => s.label), ['Explore', 'AI Assistant', 'Compare', 'Analysis', 'About']);
     // Labels are written for people; the ids behind them stay stable, which is
     // what makes renaming a section safe for state, focus and test ids.
-    assert.deepEqual(SECTIONS.map((s) => s.id), ['map', 'assistant', 'compare', 'about']);
+    assert.deepEqual(SECTIONS.map((s) => s.id), ['map', 'assistant', 'compare', 'analysis', 'about']);
     assert.equal(DEFAULT_SECTION, 'map');
   });
 

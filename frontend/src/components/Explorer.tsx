@@ -72,10 +72,12 @@ import AuthScreen from './AuthScreen';
 import ChatWorkspace from './ChatWorkspace';
 import type { MapProfile } from './Map';
 import NavBar from './NavBar';
+import Widget from './Widget';
 import { useTimeNavigator } from './useTimeNavigator';
 
 const MapExplorer = dynamic(() => import('./MapExplorer'), { ssr: false });
 const CompareWorkspace = dynamic(() => import('./CompareWorkspace'), { ssr: false });
+const AnalysisWorkspace = dynamic(() => import('./AnalysisWorkspace'), { ssr: false });
 // The introduction draws with WebGL, so it is client-only like the 3D views.
 const IntroScene = dynamic(() => import('./IntroScene'), { ssr: false });
 
@@ -515,11 +517,12 @@ export default function Explorer() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-[var(--page)] text-[var(--ink)]">
+    <div className="flex h-screen flex-col bg-[var(--fc-bg)] text-[var(--fc-fg)]">
       {showIntro && (
         <IntroScene
           markers={overview}
           searchRegion={coverage?.search_region ?? null}
+          coverage={coverage}
           onSkip={dismissIntro}
           onOpenAssistant={() => {
             dismissIntro();
@@ -620,12 +623,34 @@ export default function Explorer() {
           </div>
         )}
 
+        {section === 'analysis' && (
+          <div className="h-full overflow-y-auto">
+            <AnalysisWorkspace
+                  response={response}
+                  woa={woaMatch?.result ?? null}
+                  onNavigate={navigate}
+                />
+          </div>
+        )}
+
         {section === 'about' && (
           <div className="h-full overflow-y-auto">
             <AboutData coverage={coverage} capabilities={capabilities} response={response} mode={mode} />
           </div>
         )}
       </div>
+
+      <Widget
+        section={section}
+        onNavigate={navigate}
+        messages={messages}
+        draft={chatDraft}
+        onDraftChange={setChatDraft}
+        onSend={send}
+        onApply={applyProposal}
+        onDiscard={discardProposal}
+        session={state}
+      />
     </div>
   );
 }

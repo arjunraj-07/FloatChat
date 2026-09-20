@@ -1,72 +1,274 @@
 'use client';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { interpolateRgb } from 'd3-interpolate';
+import { geoOrthographic, geoPath, geoDistance, geoGraticule10 } from 'd3-geo';
+import * as topojson from 'topojson-client';
+import landTopo from 'world-atlas/land-110m.json';
 
-/**
- * Cinematic introduction: a sticky WebGL scene carried by scroll across three
- * chapters - the ocean planet, the cached study region, and a schematic look
- * below the surface.
- *
- * It is an overlay with its own scroll container above the workspace, which
- * stays mounted underneath, so skipping or replaying the introduction costs no
- * map view, camera or query state.
- *
- * Honesty rules, as everywhere else: the globe uses the same Natural Earth
- * coastlines as the globe view (public domain); the markers are the real
- * cached profile positions once the overview has loaded, labelled as recorded
- * locations; the underwater sequence is explicitly schematic and is not a
- * measured trajectory. Ambient motion stops when the tab is hidden, when the
- * viewer pauses it and under reduced-motion preferences; the scroll
- * choreography itself lives in `lib/introProgress.ts`.
- */
-
-import { useEffect, useRef, useState } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import * as THREE from 'three';
-
-import {
-  type IntroChapter,
-  ambientMotionEnabled,
-  floatDescent,
-  introCamera,
-  introChapter,
-  introProgress,
-} from '@/lib/introProgress.ts';
-import { type Box, boxSegments, graticuleSegments, latLonToSphere } from '@/lib/sceneGeometry.ts';
-import { InstancedPoints, LineBuffer, SceneProbe } from './scene/sceneKit';
-import { coastlineSegments } from './scene/coastlines';
-import { ContextLossWatcher, SceneBoundary, useWebGLSupport } from './scene/webgl';
+import type { CoverageInfo } from '@/lib/explorerModel.ts';
 
 export interface IntroMarker {
   latitude: number;
   longitude: number;
+  profile_id?: string;
 }
 
-interface Props {
-  /** Real cached profile positions, once the overview has loaded. */
+export interface Props {
   markers: IntroMarker[];
-  /** The cached search region, outlined in the second chapter. */
-  searchRegion: Box | null;
+  searchRegion: any | null;
+  coverage?: CoverageInfo | null;
   onSkip: () => void;
   onOpenAssistant: () => void;
 }
 
-const GLOBE_RADIUS = 1.16;
-const COAST = coastlineSegments(GLOBE_RADIUS * 1.012);
-const GRATICULE = graticuleSegments(30, GLOBE_RADIUS * 1.008);
-/** Depths labelled on the schematic ruler, in metres. */
-const RULER_DEPTHS = [0, 500, 1000, 1500, 2000];
-// The planet gives way to the schematic scene as the story descends: any
-// position near the view axis at a comfortable camera distance would sit
-// inside the globe's radius and be hidden by it, so the two never share a
-// frame. This is the chapter cut between "a study region" and "below the
-// surface".
-const UNDERWATER_FROM = 0.72;
-const UNDERWATER_Z = 0.6;
-const SURFACE_Y = 0.35;
-const RULER_TOP_Y = 0.28;
-const RULER_SPAN_Y = 0.55;
-const DESCENT_Y = 0.6;
+function clamp(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(v, max));
+}
 
-function useReducedMotion(): boolean {
+function rngFrom(seed: number) {
+  return function () {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+}
+
+function lerpHex(a: string, b: string, t: number) {
+  return interpolateRgb(a, b)(clamp(t, 0, 1));
+}
+
+const landGeoJSON = topojson.feature(landTopo as any, (landTopo as any).objects.land);
+
+function OceanScene({ depth, motion, pointerRef }: { depth: number; motion: boolean; pointerRef: React.MutableRefObject<any> }) {
+  const cv = useRef<HTMLCanvasElement>(null);
+  const raf = useRef<number>(0);
+  const depthRef = useRef(depth);
+  const motionRef = useRef(motion);
+  
+  useEffect(() => { depthRef.current = depth; }, [depth]);
+  useEffect(() => { motionRef.current = motion; }, [motion]);
+
+  useEffect(() => {
+    const canvas = cv.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let W = 0, H = 0;
+    const resize = () => {
+      const r = canvas.getBoundingClientRect();
+      W = r.width; H = r.height;
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const rnd = rngFrom(4812);
+    const N = 240;
+    const parts = Array.from({ length: N }, () => {
+      const z = 0.55 + rnd() * 3.6;
+      return { hx: (rnd() - 0.5) * 3.4, hy: (rnd() - 0.5) * 2.1, hz: z, x: 0, y: 0, z, vx: 0, vy: 0, vz: 0, ph: rnd() * 6.28, sp: 0.4 + rnd() * 0.9, big: rnd() > 0.88 };
+    });
+    parts.forEach((p) => { p.x = p.hx; p.y = p.hy; });
+
+    const FOCAL = 1.55;
+    let t = 0, last = performance.now();
+
+    const draw = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.05); last = now;
+      if (motionRef.current) t += dt;
+      const d = depthRef.current;
+      const cx = W / 2, cy = H * (0.52 - d * 0.04);
+      const unit = Math.min(W, H) * 0.62;
+      const ptr = pointerRef.current;
+
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, d < 0.5 ? '#15505c' : '#0d3441');
+      g.addColorStop(0.45, lerpHex('#11414f', '#0a2632', d));
+      g.addColorStop(1, lerpHex('#08202a', '#050f16', d));
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+      const rayAlpha = 0.085 * (1 - d * 0.8);
+      if (rayAlpha > 0.004) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 4; i++) {
+          const sway = Math.sin(t * 0.18 + i * 2.1) * W * 0.05;
+          const x0 = W * (0.14 + i * 0.24) + sway;
+          const spread = W * (0.055 + i * 0.012);
+          const rg = ctx.createLinearGradient(x0, -H * 0.1, x0 + spread * 2, H * (0.95 - d * 0.35));
+          rg.addColorStop(0, 'rgba(139,203,196,' + rayAlpha + ')');
+          rg.addColorStop(1, 'rgba(139,203,196,0)');
+          ctx.fillStyle = rg;
+          ctx.beginPath();
+          ctx.moveTo(x0 - spread, -20); ctx.lineTo(x0 + spread, -20);
+          ctx.lineTo(x0 + spread * 2.6, H * (0.95 - d * 0.3)); ctx.lineTo(x0 + spread * 1.1, H * (0.95 - d * 0.3));
+          ctx.closePath(); ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      const proj = (p: any) => { const s = (FOCAL / p.z) * unit; return [cx + p.x * s, cy + p.y * s, s]; };
+      ctx.save();
+      for (const p of parts) {
+        if (motionRef.current) {
+          const [sx, sy, s] = proj(p);
+          if (ptr.active && ptr.speed > 0.01) {
+            const dx = sx - ptr.x, dy = sy - ptr.y;
+            const MathR = Math.max(W, H) * 0.22;
+            const dist = Math.hypot(dx, dy);
+            if (dist < MathR) {
+              const fall = (1 - dist / MathR) ** 2 / Math.max(p.z * 0.5, 0.4);
+              p.vx += (ptr.vx / unit) * fall * 2.4 + (dx / (dist + 6)) * 0.004 * fall;
+              p.vy += (ptr.vy / unit) * fall * 2.4 + (dy / (dist + 6)) * 0.004 * fall;
+              p.vz += (ptr.speed / unit) * fall * 0.35 * (p.big ? -1 : 1);
+            }
+          }
+          p.vx += (p.hx - p.x) * 0.0022 + Math.sin(t * 0.3 * p.sp + p.ph) * 0.00022;
+          p.vy += (p.hy - p.y) * 0.0022 + Math.cos(t * 0.24 * p.sp + p.ph) * 0.00018 + 0.00006;
+          p.vz += (p.hz - p.z) * 0.0018;
+          p.vx *= 0.955; p.vy *= 0.955; p.vz *= 0.94;
+          p.x += p.vx; p.y += p.vy; p.z = clamp(p.z + p.vz, 0.5, 4.4);
+        }
+        const [sx, sy, s] = proj(p);
+        if (sx < -30 || sx > W + 30 || sy < -30 || sy > H + 30) continue;
+        const r = (p.big ? 2.3 : 1.15) * (s / unit) * 1.5;
+        const near = clamp(1.25 - p.z / 4.4, 0.12, 1);
+        ctx.globalAlpha = near * (0.5 - d * 0.16) + 0.06;
+        ctx.fillStyle = p.big ? '#cfe9e4' : '#8bcbc4';
+        ctx.beginPath(); ctx.arc(sx, sy, Math.max(r, 0.5), 0, 6.283); ctx.fill();
+      }
+      ctx.restore();
+
+      const fa = clamp((d - 0.22) / 0.3, 0, 1);
+      if (fa > 0.01) drawFloat(ctx, cx + W * 0.18, cy - H * 0.02 + Math.sin(t * 0.5) * 6 * (motionRef.current ? 1 : 0), Math.min(W, H) * 0.0013 * 100, fa, t, motionRef.current);
+
+      ctx.fillStyle = 'rgba(5,15,22,' + (0.1 + d * 0.22) + ')';
+      ctx.fillRect(0, 0, W, H);
+      raf.current = requestAnimationFrame(draw);
+    };
+    raf.current = requestAnimationFrame(draw);
+    return () => { cancelAnimationFrame(raf.current); window.removeEventListener('resize', resize); };
+  }, [pointerRef]);
+
+  return <canvas ref={cv} className="fc-hero-canvas" aria-hidden="true" />;
+}
+
+function drawFloat(ctx: CanvasRenderingContext2D, x: number, y: number, k: number, alpha: number, t: number, moving: boolean) {
+  const w = 13 * k * 0.1, h = 62 * k * 0.1;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = 'rgba(139,203,196,0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.setLineDash([3, 6]);
+  ctx.moveTo(x, y - h * 2.6); ctx.lineTo(x, y + h * 2.2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  for (let i = 0; i < 7; i++) {
+    const ty = y + h * 2.2 - (i / 6) * h * 4.8;
+    ctx.globalAlpha = alpha * 0.5;
+    ctx.beginPath(); ctx.moveTo(x - 5, ty); ctx.lineTo(x + 5, ty); ctx.stroke();
+  }
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(16,47,58,0.92)';
+  ctx.strokeStyle = 'rgba(180,222,216,0.85)';
+  ctx.beginPath();
+  if (ctx.roundRect) {
+      ctx.roundRect(x - w / 2, y - h / 2, w, h, w / 2);
+  } else {
+      ctx.rect(x - w / 2, y - h / 2, w, h);
+  }
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(213,109,80,0.9)';
+  ctx.beginPath(); ctx.moveTo(x - w / 2, y - h * 0.24); ctx.lineTo(x + w / 2, y - h * 0.24); ctx.stroke();
+  ctx.strokeStyle = 'rgba(180,222,216,0.8)';
+  ctx.beginPath(); ctx.moveTo(x, y - h / 2); ctx.lineTo(x, y - h / 2 - h * 0.34); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y - h / 2 - h * 0.36, 1.8, 0, 6.283); ctx.fillStyle = '#d56d50'; ctx.fill();
+  if (moving) {
+    const pulse = (Math.sin(t * 1.6) + 1) / 2;
+    ctx.globalAlpha = alpha * 0.35 * pulse;
+    ctx.beginPath(); ctx.arc(x, y - h / 2 - h * 0.36, 4 + pulse * 6, 0, 6.283);
+    ctx.strokeStyle = '#d56d50'; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function HeroGlobe({ depth, markers }: { depth: number; markers: IntroMarker[] }) {
+  const [w, setW] = useState(520);
+  const ref = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+        setW(entries[0].contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const size = clamp(w, 240, 430);
+  const [lon, setLon] = useState(-78);
+  
+  useEffect(() => {
+    let raf: number;
+    let t0 = performance.now(), lastTick = t0, base = -78, lastCommit = 0;
+    const tick = (now: number) => {
+      if (document.hidden || now - lastTick > 250) { base -= ((lastTick - t0) / 1000) * 6; t0 = now; }
+      lastTick = now;
+      if (!document.hidden && now - lastCommit >= 45) {
+        lastCommit = now;
+        setLon(base - ((now - t0) / 1000) * 6);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  
+  const path = useMemo(() => {
+    if (!landGeoJSON) return null;
+    const proj = geoOrthographic().rotate([lon, 8]).fitExtent([[6, 6], [size - 6, size - 6]], { type: 'Sphere' });
+    const gen = geoPath(proj);
+    return { land: gen(landGeoJSON as any), grat: gen(geoGraticule10() as any), sphere: gen({ type: 'Sphere' } as any), proj };
+  }, [size, lon]);
+  
+  const marks = useMemo(() => {
+    if (!path) return [];
+    return markers.filter((_, i) => i % 7 === 0).map((p) => ({
+      p,
+      xy: path.proj([p.longitude, p.latitude]),
+      vis: geoDistance([p.longitude, p.latitude], [-lon, -8]) < 1.55
+    }));
+  }, [path, lon, markers]);
+  
+  const fade = clamp(1 - depth * 2.6, 0, 1);
+  return (
+    <div ref={ref} className="fc-hero-globe" style={{ opacity: fade, transform: 'scale(' + (1 + depth * 1.8) + ')' }}>
+      {path && (
+        <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
+          <defs>
+            <radialGradient id="fc-ocean-fill" cx="38%" cy="32%">
+              <stop offset="0%" stopColor="#18606c" /><stop offset="70%" stopColor="#0d3040" /><stop offset="100%" stopColor="#071c26" />
+            </radialGradient>
+          </defs>
+          <path d={path.sphere || ''} fill="url(#fc-ocean-fill)" />
+          <path d={path.grat || ''} fill="none" stroke="rgba(139,203,196,0.14)" strokeWidth="0.5" />
+          <path d={path.land || ''} fill="#0b2129" stroke="rgba(139,203,196,0.42)" strokeWidth="0.6" />
+          <path d={path.sphere || ''} fill="none" stroke="rgba(139,203,196,0.3)" strokeWidth="1" />
+          {marks.filter((m) => m.vis && m.xy).map((m, i) => (
+            <circle key={m.p.profile_id || i} cx={m.xy![0]} cy={m.xy![1]} r="1.6" fill="#8bcbc4" opacity="0.85" />
+          ))}
+        </svg>
+      )}
+    </div>
+  );
+}
+
+export default function IntroScene({ markers, coverage, onSkip, onOpenAssistant }: Props) {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
     const query = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -75,309 +277,99 @@ function useReducedMotion(): boolean {
     query.addEventListener('change', update);
     return () => query.removeEventListener('change', update);
   }, []);
-  return reduced;
-}
 
-function Story({
-  progressRef,
-  ambientRef,
-  invalidateRef,
-  markers,
-  searchRegion,
-  onLost,
-}: {
-  progressRef: { current: number };
-  ambientRef: { current: boolean };
-  invalidateRef: { current: (() => void) | null };
-  markers: IntroMarker[];
-  searchRegion: Box | null;
-  onLost: () => void;
-}) {
-  const globe = useRef<THREE.Group>(null);
-  const floatBody = useRef<THREE.Group>(null);
-  const region = useRef<THREE.Group>(null);
-  const underwater = useRef<THREE.Group>(null);
-  const { camera, invalidate } = useThree();
-  const target = useRef(new THREE.Vector3());
-  const lookAt = useRef(new THREE.Vector3());
-
-  // Let the scroll handler outside the canvas ask for a frame.
-  useEffect(() => {
-    invalidateRef.current = invalidate;
-    return () => {
-      invalidateRef.current = null;
-    };
-  }, [invalidate, invalidateRef]);
-
-  const markerPositions = new Float32Array(
-    markers.slice(0, 60).flatMap((m) => latLonToSphere(m.latitude, m.longitude, GLOBE_RADIUS * 1.03)),
-  );
-  const outline = searchRegion ? boxSegments(searchRegion, GLOBE_RADIUS * 1.02) : null;
-
-  useFrame(({ clock }) => {
-    const progress = progressRef.current;
-    const ambient = ambientRef.current;
-    if (globe.current) {
-      globe.current.rotation.y = (ambient ? clock.getElapsedTime() * 0.018 : 0) + progress * 0.55;
-    }
-    const frame = introCamera(progress);
-    target.current.set(...frame.position);
-    camera.position.lerp(target.current, 0.06);
-    lookAt.current.set(...frame.lookAt);
-    camera.lookAt(lookAt.current);
-
-    if (region.current) region.current.visible = progress > 0.18;
-    const descent = floatDescent(progress);
-    // The planet and the underwater scene never share a frame.
-    if (globe.current) globe.current.visible = progress < UNDERWATER_FROM;
-    if (underwater.current) underwater.current.visible = progress >= UNDERWATER_FROM;
-    if (floatBody.current) {
-      const bob = ambient ? Math.sin(clock.getElapsedTime() * 1.4) * 0.03 : 0;
-      floatBody.current.position.y = SURFACE_Y - descent * DESCENT_Y + bob;
-    }
-
-    // Keep drawing while motion runs or the camera is still catching up; once
-    // both settle the canvas goes idle, so a hidden or paused scene costs
-    // nothing.
-    if (ambient || camera.position.distanceTo(target.current) > 0.0008) invalidate();
-  });
-
-  return (
-    <>
-      <color attach="background" args={['#071c24']} />
-      <ambientLight intensity={0.52} />
-      <directionalLight position={[3, 2, 4]} intensity={1.35} color="#ddebe4" />
-      <pointLight position={[-2, -1, 1]} intensity={0.7} color="#4baba1" />
-
-      <group ref={globe} rotation={[0.08, -0.35, 0]}>
-        <mesh>
-          <sphereGeometry args={[GLOBE_RADIUS, 64, 64]} />
-          <meshStandardMaterial color="#123f4a" roughness={0.72} metalness={0.04} />
-        </mesh>
-        <LineBuffer positions={GRATICULE} color="#2d6b70" opacity={0.5} />
-        <LineBuffer positions={COAST} color="#8eb8ac" opacity={0.75} />
-        <group ref={region} visible={false}>
-          {outline && <LineBuffer positions={outline} color="#d1846c" />}
-          <InstancedPoints positions={markerPositions} colours="#77b7aa" shape="sphere" size={0.015} />
-        </group>
-      </group>
-
-      <group ref={underwater} visible={false}>
-        {/* Scaled to sit in the frame rather than fill it. */}
-        <group ref={floatBody} position={[0.42, SURFACE_Y, UNDERWATER_Z]} scale={0.55}>
-          <mesh>
-            <cylinderGeometry args={[0.075, 0.075, 0.36, 16]} />
-            <meshStandardMaterial color="#d1846c" roughness={0.44} />
-          </mesh>
-          <mesh position={[0, 0.22, 0]}>
-            <sphereGeometry args={[0.1, 16, 12]} />
-            <meshStandardMaterial color="#edf1eb" roughness={0.6} />
-          </mesh>
-          <mesh position={[0, -0.22, 0]}>
-            <coneGeometry args={[0.13, 0.18, 12]} />
-            <meshStandardMaterial color="#77b7aa" roughness={0.55} />
-          </mesh>
-        </group>
-        {/* A schematic depth ruler: evenly spaced marks, not a data axis. */}
-        <LineBuffer
-          positions={new Float32Array([-0.12, RULER_TOP_Y, UNDERWATER_Z, -0.12, RULER_TOP_Y - RULER_SPAN_Y, UNDERWATER_Z])}
-          color="#a7bec1"
-          opacity={0.65}
-        />
-        <LineBuffer
-          positions={
-            new Float32Array(
-              RULER_DEPTHS.flatMap((depth) => {
-                const y = RULER_TOP_Y - (depth / 2000) * RULER_SPAN_Y;
-                return [-0.18, y, UNDERWATER_Z, -0.06, y, UNDERWATER_Z];
-              }),
-            )
-          }
-          color="#a7bec1"
-          opacity={0.5}
-        />
-      </group>
-      <ContextLossWatcher onLost={onLost} />
-      <SceneProbe
-        name="intro"
-        points={() => []}
-        extra={() => ({ progress: progressRef.current, ambient: ambientRef.current })}
-      />
-    </>
-  );
-}
-
-export default function IntroScene({ markers, searchRegion, onSkip, onOpenAssistant }: Props) {
-  const support = useWebGLSupport();
-  const reducedMotion = useReducedMotion();
   const [paused, setPaused] = useState(false);
-  const [hidden, setHidden] = useState(false);
-  const [chapter, setChapter] = useState<IntroChapter>('planet');
-  const [failure, setFailure] = useState<string | null>(null);
-  const scroller = useRef<HTMLDivElement>(null);
-  const progressRef = useRef(0);
-  const ambientRef = useRef(true);
-  const invalidateRef = useRef<(() => void) | null>(null);
+  const [depth, setDepth] = useState(reduced ? 1 : 0);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const pointerRef = useRef({ x: 0, y: 0, vx: 0, vy: 0, speed: 0, active: false });
 
-  // Ambient motion just started or stopped: record it for the render loop and
-  // ask for one more frame, which either resumes drawing or draws the last
-  // settled one.
   useEffect(() => {
-    ambientRef.current = ambientMotionEnabled({ hidden, reducedMotion, paused });
-    invalidateRef.current?.();
-  }, [hidden, reducedMotion, paused]);
-
-  // Progress comes from the overlay's own scroll container, so the workspace
-  // underneath keeps its scroll positions.
-  useEffect(() => {
-    const element = scroller.current;
-    if (!element) return;
+    if (reduced) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
     const onScroll = () => {
-      progressRef.current = introProgress(element.scrollTop, element.clientHeight);
-      setChapter(introChapter(progressRef.current));
-      invalidateRef.current?.();
+      const el = wrap.current;
+      if (!el) return;
+      const total = el.offsetHeight - scroller.clientHeight;
+      setDepth(clamp(scroller.scrollTop / Math.max(total, 1), 0, 1));
     };
     onScroll();
-    element.addEventListener('scroll', onScroll, { passive: true });
-    return () => element.removeEventListener('scroll', onScroll);
-  }, []);
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [reduced]);
 
   useEffect(() => {
-    const onVisibility = () => setHidden(document.visibilityState === 'hidden');
-    onVisibility();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
+    const el = stageRef.current;
+    if (!el) return;
+    let lx = 0, ly = 0, lt = performance.now();
+    const move = (e: PointerEvent) => {
+      const r = el.getBoundingClientRect();
+      const x = e.clientX - r.left, y = e.clientY - r.top;
+      const now = performance.now(), dt = Math.max(now - lt, 8);
+      const p = pointerRef.current;
+      p.vx = (x - lx) * (16 / dt); p.vy = (y - ly) * (16 / dt);
+      p.speed = Math.hypot(p.vx, p.vy);
+      p.x = x; p.y = y; p.active = true;
+      lx = x; ly = y; lt = now;
+    };
+    const leave = () => { pointerRef.current.active = false; pointerRef.current.speed = 0; };
+    el.addEventListener('pointermove', move as any);
+    el.addEventListener('pointerleave', leave);
+    return () => { el.removeEventListener('pointermove', move as any); el.removeEventListener('pointerleave', leave); };
   }, []);
-
-  const copyClass = (id: IntroChapter) => `intro-copy${chapter === id ? '' : ' is-hidden'}`;
-  const sceneReady = support.ok && !failure;
 
   return (
     <div
-      ref={scroller}
-      data-testid="intro"
-      role="dialog"
-      aria-modal="true"
-      aria-label="FloatChat introduction"
+      ref={scrollerRef}
       className="intro-page"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onSkip();
-      }}
+      data-testid="intro"
+      style={{ position: 'fixed', inset: 0, zIndex: 2000, overflowY: 'auto', background: 'var(--fc-bg)', color: 'var(--fc-fg)' }}
     >
-      <button type="button" data-testid="skip-intro" className="skip-intro" onClick={onSkip}>
-        Skip introduction <span aria-hidden>→</span>
-      </button>
+      <div className="fc-hero-wrap" ref={wrap} style={{ height: reduced ? 'auto' : '280vh' }}>
+        <div className="fc-hero-stage" ref={stageRef} style={{ position: reduced ? 'relative' : 'sticky', top: 0, height: '100vh' }}>
+          <OceanScene depth={depth} motion={!paused} pointerRef={pointerRef} />
+          <div className="fc-hero-globe-slot">{depth < 0.42 && <HeroGlobe depth={depth} markers={markers} />}</div>
 
-      <section className="intro-story">
-        <div className="intro-stage">
-          {sceneReady ? (
-            <SceneBoundary
-              fallback={(reason) => (
-                <div data-testid="intro-fallback" className="intro-fallback">
-                  <p>The introductory scene could not run ({reason}). Everything it shows is available in the workspace.</p>
-                </div>
-              )}
-            >
-              <Canvas
-                frameloop="demand"
-                dpr={[1, 1.5]}
-                camera={{ fov: 37, near: 0.1, far: 100, position: [0.05, 0.08, 3.65] }}
-                gl={{ antialias: true }}
-                aria-label="Introductory ocean scene"
-              >
-                <Story
-                  progressRef={progressRef}
-                  ambientRef={ambientRef}
-                  invalidateRef={invalidateRef}
-                  markers={markers}
-                  searchRegion={searchRegion}
-                  onLost={() => setFailure('the WebGL context was lost')}
-                />
-              </Canvas>
-            </SceneBoundary>
-          ) : (
-            <div data-testid="intro-fallback" className="intro-fallback">
-              <p>
-                The introductory scene needs WebGL, which this browser did not provide
-                {failure ?? support.reason ? ` (${failure ?? support.reason})` : ''}. It is decorative: the maps,
-                profiles and measurements are all in the workspace.
-              </p>
+          <div className="fc-hero-copy" style={{ transform: `translateY(${-depth * 26}px)` }}>
+            <div style={{ marginBottom: '1.5rem', opacity: 1 - depth * 3 }}>
+              <span className="fc-brand">
+                <span className="fc-brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+                FloatChat
+              </span>
             </div>
-          )}
-
-          <div className="intro-meta">
-            <span>FloatChat / Argo profile explorer</span>
-            <span>Illustrative scene · measurements live in Map Explorer</span>
+            {coverage && <div className="fc-kicker">Argo global array · {coverage.label}</div>}
+            <h1 className="fc-hero-h1">Explore real Argo<br />ocean observations.</h1>
+            <p className="fc-hero-lede">Understand how temperature and salinity change with depth. Ask questions about the data that is actually available — and see the evidence behind every answer.</p>
+            <div className="fc-row fc-gap-3 fc-wrap fc-mt-4">
+              <button className="fc-btn fc-btn-primary" data-testid="skip-intro" onClick={onSkip}>Explore ocean data</button>
+              <button className="fc-btn" onClick={onOpenAssistant}>Ask the assistant</button>
+            </div>
+            <dl className="fc-hero-facts">
+              <div><dt>Floats</dt><dd><span className="fc-mono">{coverage ? coverage.distinct_floats : '...'}</span></dd></div>
+              <div><dt>Profiles</dt><dd><span className="fc-mono">{coverage ? coverage.distinct_profiles : '...'}</span></dd></div>
+              <div><dt>Window</dt><dd><span className="fc-mono">{coverage ? `${coverage.date_range[0].slice(0, 10)} → ${coverage.date_range[1].slice(0, 10)}` : '...'}</span></dd></div>
+              <div><dt>Depth</dt><dd><span className="fc-mono">{coverage && coverage.depth_range_m ? `${coverage.depth_range_m[0]}–${coverage.depth_range_m[1]} m` : '...'}</span></dd></div>
+            </dl>
           </div>
-          <div className="intro-progress" aria-hidden>
-            <span className={chapter === 'planet' ? 'is-active' : ''} />
-            <span className={chapter === 'region' ? 'is-active' : ''} />
-            <span className={chapter === 'depth' ? 'is-active' : ''} />
-          </div>
-        </div>
 
-        <div className={copyClass('planet')} data-testid="intro-chapter-planet">
-          <span className="intro-index">01 / The ocean planet</span>
-          <h1>Explore the ocean beneath the surface.</h1>
-          <p>
-            Ask a question in words or set the filters yourself, then read real Argo temperature and salinity profiles
-            through depth and time.
-          </p>
-          <div>
-            <button type="button" data-testid="intro-open-explorer" className="intro-primary" onClick={onSkip}>
-              Open Map Explorer <span aria-hidden>↗</span>
+          <div className="fc-hero-controls" style={{ display: 'flex', gap: '1rem', alignItems: 'center', pointerEvents: 'auto' }}>
+            <div className="fc-depthmeter" aria-hidden="true"><div className="fc-depthmeter-fill" style={{ height: (depth * 100).toFixed(1) + '%' }} /></div>
+            <span className="fc-mono fc-sm fc-muted">{Math.round(depth * (coverage?.depth_range_m?.[1] || 2000))} m</span>
+            <button 
+              type="button" 
+              data-testid="intro-motion"
+              onClick={() => setPaused(!paused)} 
+              style={{ background: 'transparent', border: '1px solid rgba(139,203,196,0.3)', color: '#8bcbc4', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer', marginLeft: 'auto' }}
+            >
+              {paused ? 'Resume motion' : 'Pause motion'}
             </button>
           </div>
-          <span className="intro-scroll-cue">
-            Scroll to descend <span className="scroll-line" />
-          </span>
-        </div>
 
-        <div className={copyClass('region')} data-testid="intro-chapter-region">
-          <span className="intro-index">02 / A study region</span>
-          <h2>Start with a place.</h2>
-          <p>
-            The cached dataset was extracted for one Arabian Sea region. The outline is that search region; the points
-            are the recorded profile locations inside it.
-          </p>
-          <span className="intro-note">Profiles were recorded only at those points, not across the whole region</span>
+          {!reduced && depth < 0.08 && <div className="fc-hero-scrollhint" aria-hidden="true">Scroll to descend</div>}
         </div>
-
-        <div className={copyClass('depth')} data-testid="intro-chapter-depth">
-          <span className="intro-index">03 / Below the surface</span>
-          <h2>Follow a float downward.</h2>
-          <p>
-            A float drifts, dives and reports measurements at many depths. Each dive becomes one profile you can
-            inspect, compare and step through in time.
-          </p>
-          <span className="intro-note">Schematic sequence · not a measured trajectory</span>
-        </div>
-
-        <div className="intro-end">
-          <span className="intro-index">Ready when you are</span>
-          <h2>Read the ocean with evidence.</h2>
-          <div>
-            <button type="button" className="intro-primary" onClick={onSkip}>
-              Open Map Explorer <span aria-hidden>↗</span>
-            </button>
-            <button type="button" className="intro-secondary" onClick={onOpenAssistant}>
-              Ask the AI Assistant <span aria-hidden>↗</span>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <div className="intro-controls">
-        <button type="button" data-testid="intro-motion" aria-pressed={paused} onClick={() => setPaused((v) => !v)}>
-          {paused ? 'Resume motion' : 'Pause motion'}
-        </button>
-        <span data-testid="intro-motion-state">
-          {reducedMotion
-            ? 'Reduced motion: ambient motion off'
-            : paused
-              ? 'Ambient motion paused'
-              : 'Ambient motion on'}
-        </span>
+        {!reduced && <p className="fc-hero-sr">Move the pointer through the water to drag a wake through the plankton field.</p>}
       </div>
     </div>
   );

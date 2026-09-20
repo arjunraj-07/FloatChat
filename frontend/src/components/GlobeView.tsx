@@ -151,15 +151,15 @@ function GlobeScene({
 
   return (
     <>
-      <color attach="background" args={['#eef2f6']} />
+      <color attach="background" args={['#050f16']} />
       {/* The sphere hides markers on the far side from pointer events too. */}
       <mesh onClick={stop} onPointerMove={stop}>
         <sphereGeometry args={[1, 96, 64]} />
-        <meshBasicMaterial color="#d7e7f3" />
+        <meshBasicMaterial color="#0b2b36" />
       </mesh>
-      <LineBuffer positions={GRATICULE} color="#b3c3d2" opacity={0.8} />
-      <LineBuffer positions={LAND} color="#5d6f80" />
-      {outline && <LineBuffer positions={outline} color={mode === 'results' ? '#c2410c' : '#6b7280'} />}
+      <LineBuffer positions={GRATICULE} color="#8bcbc4" opacity={0.09} />
+      <LineBuffer positions={LAND} color="#0e1f25" />
+      {outline && <LineBuffer positions={outline} color={mode === 'results' ? '#2fa79f' : '#3d4d54'} />}
       <InstancedPoints
         positions={positions}
         colours={colours}
@@ -230,7 +230,7 @@ export default function GlobeView({
   }
 
   return (
-    <div data-testid="globe-view" className="absolute inset-0 bg-[#eef2f6]">
+    <div data-testid="globe-view" className="absolute inset-0 bg-[#050f16]">
       <SceneBoundary fallback={(reason) => <SceneFallback reason={reason} onUseMap={onUseMap} />}>
         <Canvas
           frameloop="demand"
@@ -264,14 +264,14 @@ export default function GlobeView({
       {/* Phones: one compact coverage line, the full wording on request. */}
       <div
         data-testid="globe-legend-compact"
-        className="absolute left-2 top-2 max-w-[11.5rem] rounded-md bg-white/90 px-2 py-1 text-[11px] leading-snug text-slate-700 shadow sm:hidden"
+        className="absolute left-2 top-2 max-w-[11.5rem] rounded-md bg-[rgba(8,27,35,0.85)] px-2 py-1 text-[11px] leading-snug text-[var(--fc-muted)] shadow sm:hidden"
       >
         <p>
-          <span className={`mr-1 inline-block h-2.5 w-2.5 border-2 align-middle ${mode === 'results' ? 'border-[#c2410c]' : 'border-[#6b7280]'}`} />
+          <span className={`mr-1 inline-block h-2.5 w-2.5 border-2 align-middle ${mode === 'results' ? 'border-[#2fa79f]' : 'border-[#3d4d54]'}`} />
           Cached search region, not sampled throughout; dots are recorded profiles.
         </p>
         <details>
-          <summary className="cursor-pointer text-slate-800">More</summary>
+          <summary className="cursor-pointer text-[var(--fc-fg)]">More</summary>
           <div className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
             {outlineBox && (
               <p>
@@ -288,30 +288,30 @@ export default function GlobeView({
 
       <div
         data-testid="globe-legend"
-        className="pointer-events-none absolute left-2 top-2 hidden max-w-[16rem] space-y-0.5 rounded-md bg-white/90 px-2 py-1.5 text-[11px] leading-snug text-slate-700 shadow sm:block"
+        className="pointer-events-none absolute left-2 top-2 hidden max-w-[16rem] space-y-0.5 rounded-md bg-[rgba(8,27,35,0.85)] px-2 py-1.5 text-[11px] leading-snug text-[var(--fc-muted)] shadow sm:block"
       >
         {mode === 'overview' ? (
           <p>
-            <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-[#8a8983] align-middle" />
+            <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-[#3d4d54] align-middle" />
             Cached profile locations (overview, not query results)
           </p>
         ) : (
           <div>
-            <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-[#0d366b] align-middle" />Selected profile</p>
-            <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-[#2a78d6] align-middle" />Same float</p>
-            <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-[#86b6ef] align-middle" />Other floats in this result</p>
+            <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-[#e6f2f0] align-middle" />Selected profile</p>
+            <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-[#8bcbc4] align-middle" />Same float</p>
+            <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-[#175a66] align-middle" />Other floats in this result</p>
           </div>
         )}
         {/* One short line for the dataset's geographic scope; the wording that
             used to repeat it in three paragraphs is gone. */}
         {outlineKind !== 'none' && outlineBox && (
           <p data-testid="globe-coverage">
-            <span className={`mr-1 inline-block h-2.5 w-2.5 border-2 align-middle ${mode === 'results' ? 'border-[#c2410c]' : 'border-[#6b7280]'}`} />
+            <span className={`mr-1 inline-block h-2.5 w-2.5 border-2 align-middle ${mode === 'results' ? 'border-[#2fa79f]' : 'border-[#3d4d54]'}`} />
             {outlineKind === 'search_region' ? 'Cached search region' : 'Recorded profile extent'} (
             {describeRegion(outlineBox)}) — sampled only at the marked points.
           </p>
         )}
-        <p className="text-slate-500">Coastlines: Natural Earth (public domain)</p>
+        <p className="text-[var(--fc-muted)]">Coastlines: Natural Earth (public domain)</p>
       </div>
 
       <div className="absolute right-2 top-2 flex max-w-[10rem] flex-col items-end gap-1.5 sm:max-w-[13rem]">
@@ -346,9 +346,9 @@ export default function GlobeView({
       </div>
 
       <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap items-end justify-between gap-2 text-[11px]">
-        <p className="rounded bg-white/80 px-1.5 py-0.5 text-slate-600">Drag to rotate · scroll or pinch to zoom</p>
+        <p className="rounded bg-[rgba(8,27,35,0.85)] px-1.5 py-0.5 text-[var(--fc-muted)]">Drag to rotate · scroll or pinch to zoom</p>
         {hoveredProfile && (
-          <p data-testid="globe-hover" className="rounded bg-white/95 px-2 py-1 text-slate-800 shadow">
+          <p data-testid="globe-hover" className="rounded bg-[rgba(8,27,35,0.95)] px-2 py-1 text-[var(--fc-fg)] shadow">
             Float {hoveredProfile.platform} · {hoveredProfile.profile_id} · {formatUtc(hoveredProfile.time)}
           </p>
         )}
