@@ -21,10 +21,17 @@ export default function AnalysisWorkspace({ response, woa, onNavigate }: Props) 
   
   const analysedProfiles = results?.profiles.length || 0;
   
-  const validThermo = thermoclines.filter(t => t.status === 'estimated' && t.candidate);
-  const meanMldDepth = validThermo.length 
-    ? validThermo.reduce((sum, t) => sum + t.candidate!.estimated_depth_m, 0) / validThermo.length 
-    : null;
+  // Counted by the backend's own status values. Thermocline depth is not a
+  // mixed-layer depth, so these counts are reported as statuses, never averaged
+  // into a single "depth" figure.
+  const countStatus = (status: string) => thermoclines.filter(t => t.status === status).length;
+  const estimatedThermo = countStatus('estimated');
+  const ambiguousThermo = countStatus('ambiguous');
+  const insufficientThermo = countStatus('insufficient_evidence');
+  const noCandidateThermo = countStatus('no_qualifying_candidate');
+  const notApplicableThermo = countStatus('not_applicable');
+  // The policy the backend actually applied, quoted rather than restated here.
+  const thermoPolicyNote = thermoclines.find(t => typeof t.policy?.note === 'string')?.policy.note as string | undefined;
     
   const validGrads = gradients.filter(g => g.strongest_cooling?.interval);
   const meanStrongestGradient = validGrads.length
@@ -48,8 +55,23 @@ export default function AnalysisWorkspace({ response, woa, onNavigate }: Props) 
           </div>
           <div className="p-5 flex flex-col gap-3">
             <div className="fc-datarow"><span>Profiles analysed</span><span className="fc-mono">{analysedProfiles}</span></div>
-            <div className="fc-datarow"><span>Mean mixed-layer depth</span><span className="fc-mono">{meanMldDepth != null ? meanMldDepth.toFixed(1) + ' m' : '—'}</span></div>
-            <div className="fc-datarow"><span>Mean strongest gradient</span><span className="fc-mono">{meanStrongestGradient != null ? meanStrongestGradient.toFixed(3) + ' °C/m' : '—'}</span></div>
+            <div className="fc-datarow"><span>Thermocline estimated</span><span className="fc-mono">{estimatedThermo}</span></div>
+            <div className="fc-datarow"><span>Estimated but ambiguous</span><span className="fc-mono">{ambiguousThermo}</span></div>
+            <div className="fc-datarow"><span>No qualifying candidate</span><span className="fc-mono">{noCandidateThermo}</span></div>
+            <div className="fc-datarow"><span>Insufficient evidence</span><span className="fc-mono">{insufficientThermo}</span></div>
+            <div className="fc-datarow"><span>Temperature not analysed</span><span className="fc-mono">{notApplicableThermo}</span></div>
+            <div className="fc-datarow"><span>Mean strongest cooling gradient</span><span className="fc-mono">{meanStrongestGradient != null ? meanStrongestGradient.toFixed(3) + ' °C/m' : '—'}</span></div>
+            <div className="fc-badge fc-badge-info mt-2 text-left" style={{ whiteSpace: 'normal', display: 'block' }}>
+              Thermocline depth is a derived transition depth, not a mixed-layer depth. The two are
+              different quantities, so they are not averaged together and no mixed-layer depth is
+              reported here. A refused status is a statement about this method and depth range, not
+              evidence that the ocean has no thermocline.
+            </div>
+            {thermoPolicyNote && (
+              <div className="mt-2 text-xs text-[var(--fc-muted)] leading-relaxed" data-testid="analysis-thermocline-policy">
+                {thermoPolicyNote}
+              </div>
+            )}
             <button className="fc-btn fc-btn-sm mt-3 w-max" onClick={() => onNavigate('map')}>View profiles on map</button>
           </div>
         </div>
@@ -61,7 +83,10 @@ export default function AnalysisWorkspace({ response, woa, onNavigate }: Props) 
           </div>
           <div className="p-5 flex flex-col gap-3">
             <div className="fc-datarow"><span>Profiles with salinity</span><span className="fc-mono">{results?.profiles.filter(p => p.variables['psal']?.valid_levels > 0).length || 0}</span></div>
-            <div className="fc-datarow"><span>Levels dropped by QC</span><span className="fc-mono">{results?.profiles.reduce((sum, p) => sum + (p.variables['psal']?.excluded_levels || 0), 0) || 0}</span></div>
+            {/* excluded_levels counts every level with no usable value, which is
+                QC-rejected levels and levels that simply carry no measurement.
+                Labelling the total "dropped by QC" attributed all of them to QC. */}
+            <div className="fc-datarow"><span>Levels without a usable value</span><span className="fc-mono">{results?.profiles.reduce((sum, p) => sum + (p.variables['psal']?.excluded_levels || 0), 0) || 0}</span></div>
             <div className="fc-badge fc-badge-info mt-2 text-left" style={{ whiteSpace: 'normal', display: 'block' }}>
               Salinity gaps are left as gaps. Profiles with a subsurface minimum are not smoothed.
             </div>

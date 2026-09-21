@@ -39,7 +39,7 @@ import {
   summarizeSelection,
 } from '@/lib/selectionSummary.ts';
 import DetailsPanel from './DetailsPanel';
-import Map, { type MapProfile } from './Map';
+import Map, { MARKER_COLORS, type MapProfile } from './Map';
 import PlanPreview, { OutcomeBadge } from './PlanPreview';
 import ProfilePanel from './ProfilePanel';
 import QueryBuilder from './QueryBuilder';
@@ -347,18 +347,21 @@ export default function MapExplorer({
               />
               <div
                 data-testid="map-legend"
-                className="pointer-events-none absolute bottom-2 left-2 z-[1000] hidden rounded-md bg-[rgb(249_248_243/0.92)] px-2.5 py-2 text-[11px] leading-snug text-[var(--muted)] shadow sm:block"
+                className="pointer-events-none absolute bottom-2 left-2 z-[1000] hidden rounded-md border border-[rgba(139,203,196,0.25)] bg-[rgba(7,24,32,0.88)] px-2.5 py-2 text-[11px] leading-snug text-[var(--fc-muted)] shadow sm:block"
               >
+                {/* Swatch colours come from MARKER_COLORS, the same constants the
+                    markers are drawn with, so the legend cannot describe one
+                    palette while the map renders another. */}
                 {mapMode === 'overview' ? (
                   <p>
-                    <span className={`${DOT} border border-[#8a8983] bg-[#8a8983]/40`} />
+                    <span className={DOT} style={{ backgroundColor: MARKER_COLORS.overview }} />
                     Cached profile position (overview)
                   </p>
                 ) : (
                   <>
-                    <p><span className={`${DOT} bg-[#0d366b]`} />Selected profile</p>
-                    <p><span className={`${DOT} bg-[#2a78d6]`} />Same float, joined in time order</p>
-                    <p><span className={`${DOT} bg-[#86b6ef]`} />Other floats in this result</p>
+                    <p><span className={DOT} style={{ backgroundColor: MARKER_COLORS.selected }} />Selected profile</p>
+                    <p><span className={DOT} style={{ backgroundColor: MARKER_COLORS.sameFloat }} />Same float, joined in time order</p>
+                    <p><span className={DOT} style={{ backgroundColor: MARKER_COLORS.otherFloat }} />Other floats in this result</p>
                   </>
                 )}
                 {/* Kept to one short line: the map fit reserves a fixed

@@ -45,7 +45,9 @@ interface Props {
   onSelectProfile: (profileId: string) => void;
 }
 
-const COLORS = {
+/** Marker fill colours. Exported so the map legend draws its swatches from the
+ * same values the markers use - they had drifted apart into a stale palette. */
+export const MARKER_COLORS = {
   overview: '#3d4d54',
   selected: '#e6f2f0',
   sameFloat: '#8bcbc4',
@@ -154,23 +156,31 @@ export default function Map({ mode, profiles, boundsProfiles, selectedProfileId,
       <FitToMarkers boundsKey={boundsKey} points={points} />
       <PanToSelection target={selected ? [selected.latitude, selected.longitude] : null} />
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        attribution="&copy; <a href='https://carto.com/'>CARTO</a>"
+        // CARTO's basemap endpoints no longer serve this prototype without a
+        // registered API key - they returned "API KEY REQUIRED" watermark tiles
+        // and now do not respond at all. OSM's standard tile server is the
+        // supported keyless fallback; its canonical host is used rather than the
+        // legacy {s} subdomain form. Attribution is required and is kept.
+        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
+        // Restyles the raster to the ocean palette. Applies to the tile pane
+        // only, so markers and the attribution control keep their own colours.
+        className="fc-map-dark-tiles"
       />
       {track.length > 1 && (
-        <Polyline positions={track} pathOptions={{ color: COLORS.sameFloat, weight: 2, opacity: 0.7 }} />
+        <Polyline positions={track} pathOptions={{ color: MARKER_COLORS.sameFloat, weight: 2, opacity: 0.7 }} />
       )}
       {ordered.map((p) => {
         const isSelected = p.profile_id === selectedProfileId;
         const sameFloat = selected !== null && p.platform === selected.platform;
         const color =
           mode === 'overview'
-            ? COLORS.overview
+            ? MARKER_COLORS.overview
             : isSelected
-              ? COLORS.selected
+              ? MARKER_COLORS.selected
               : sameFloat
-                ? COLORS.sameFloat
-                : COLORS.otherFloat;
+                ? MARKER_COLORS.sameFloat
+                : MARKER_COLORS.otherFloat;
         return (
           <CircleMarker
             key={p.profile_id}

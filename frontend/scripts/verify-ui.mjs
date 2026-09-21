@@ -243,7 +243,23 @@ async function authSubmit(mode, email, password = TEST_PASSWORD, role = null) {
 }
 
 const activeNav = () => evaluate(`document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.dataset.testid ?? null`);
-const nav = async (id) => { await click(`[data-testid=nav-${id}]`); await sleep(700); };
+// Waits for the section to be on screen with its heading focused, rather than a
+// flat delay. Compare mounts Plotly charts and under load took longer than the
+// old 700 ms, so the focus check ran before focus landed and failed. A timeout
+// here asserts nothing and hides nothing - the checks that follow still run.
+const nav = async (id) => {
+  await click(`[data-testid=nav-${id}]`);
+  // Either the heading has taken focus, or the section is not there to focus:
+  // the assistant is gated for signed-out visitors, who get the sign-in panel
+  // instead of the workspace heading. Both endings return straight away, so the
+  // wait never burns its timeout on a section that was never going to focus.
+  await waitFor(
+    `!${q(`[data-testid=ws-${id}]`)}`
+    + ` || ${q('[data-testid=assistant-requires-account]')}`
+    + ` || (document.activeElement && document.activeElement.id === 'heading-${id}')`,
+    `the ${id} section to open and take focus`, 8000);
+  await sleep(300);
+};
 const pressKey = async (key, code, windowsVirtualKeyCode) => {
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode });
@@ -403,6 +419,7 @@ const regionText = coverage.search_region
 // 0. Accounts ---------------------------------------------------------------------
 // Since publicMode is true by default, we start on the homepage (ws-map).
 await waitFor(`${q('[data-testid=ws-map]')}`, 'homepage');
+await waitFor(`${q('[data-testid=sign-in]')}`, 'sign-in button');
 await click('[data-testid=sign-in]'); // Trigger auth screen
 await waitFor(`${q('[data-testid=auth-screen]')}`, 'sign-in screen');
 await sleep(400);
@@ -975,7 +992,12 @@ await sleep(400);
 await setInput('#field-depthMax', '500');
 await sleep(300);
 await click('[data-testid=filters-close]');
-await sleep(1800);
+// Restoring the depth range re-runs the query. A fixed wait was not enough
+// under load: the map still held the narrower result, so the sections below ran
+// against 36 of the 40 profiles and the temperature-only float was missing from
+// it. Wait for the request to actually finish instead.
+await waitForQuiet('the restored depth range to re-run the query');
+await sleep(600);
 
 check('map: no marker hidden under the legend after results', (await markersUnderLegend()) === 0);
 await shot('01-map-explorer');
@@ -1005,8 +1027,15 @@ await click('[data-testid=variable-tab-psal]');
 await sleep(600);
 let missingFound = false;
 for (const f of floats) {
+  // Changing the float swaps the open profile, so wait for that to actually
+  // happen rather than sleeping a fixed 500 ms: under load the availability
+  // line below was still describing the previous float, and the loop then
+  // walked past the temperature-only profile without ever seeing it.
+  const previousProfile = await value('[data-testid=profile-select]');
   await setSelect('[data-testid=float-select]', f);
-  await sleep(500);
+  await waitFor(`${q('[data-testid=profile-select]')}?.value !== ${JSON.stringify(previousProfile)}`,
+    `the open profile to follow float ${f}`, 5000);
+  await sleep(300);
   const psal = (await text('[data-testid=availability-psal]')) ?? '';
   if (/No salinity here/i.test(psal)) {
     missingFound = true;
@@ -1816,48 +1845,101 @@ try {
 await send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false });
 await send('Page.navigate', { url: `${BASE_URL}${BASE_URL.includes('?') ? '&' : '?'}intro=1` });
 await waitFor(`${q('[data-testid=intro]')}`, 'introduction');
+// The introduction is now a 2D canvas hero, not the scroll-driven three-chapter
+// WebGL sequence it used to be. The chapter and camera assertions written for
+// that sequence were replaced with `check(name, true)` when the UI changed -
+// tautologies that could never fail. They are rewritten here against the
+// introduction that actually exists, and they assert the scene's own recorded
+// state, not the button label.
+//
+// Pausing freezes the ambient clock while the canvas keeps repainting (the
+// scroll-driven depth still has to redraw), so the honest assertion is that the
+// ambient clock stops advancing - not that frames stop.
+await waitFor(`typeof window.__floatchatScene?.intro?.clock === 'function'`, 'introduction scene probe');
 await sleep(900);
 check('intro: the cinematic scene draws, with a visible skip action',
-  (await isVisible('[data-testid=skip-intro]')) && (await isVisible('[data-testid=intro-motion]')));
+  (await sceneEval('intro', 's.frames()')) > 0 &&
+  (await isVisible('[data-testid=skip-intro]')) && (await isVisible('[data-testid=intro-motion]')),
+  `${await sceneEval('intro', 's.frames()')} frames painted`);
+await shot('15-intro-surface');
+const depthFill = () => evaluate(`parseFloat(document.querySelector('.fc-depthmeter-fill').style.height) || 0`);
 const scrollIntro = async (fraction) => {
-  await evaluate(`(() => { const el = ${q('[data-testid=intro]')}; el.scrollTop = el.scrollHeight * 0.8 * ${fraction}; return el.scrollTop; })()`);
+  await evaluate(`(() => { const el = ${q('[data-testid=intro]')}; el.scrollTop = el.clientHeight * 1.8 * ${fraction}; return el.scrollTop; })()`);
   await sleep(700);
 };
-await scrollIntro(0.5);
-await shot('15-intro-mid');
+const depth0 = await depthFill();
 await scrollIntro(1.0);
-await shot('16-intro-end');
+const depth1 = await depthFill();
+check('intro: scrolling descends, and the depth readout follows', depth1 > depth0 + 1,
+  `depth meter ${depth0.toFixed(1)}% -> ${depth1.toFixed(1)}%`);
+await shot('16-intro-descended');
+await scrollIntro(0);
+check('intro: scrolling back returns to the surface', (await depthFill()) < depth1 - 1);
+
+// Pausing must actually stop the ambient animation, not just relabel the control.
 await click('[data-testid=intro-motion]');
+await sleep(600);
+const pausedClock = await sceneEval('intro', 's.clock()');
 await sleep(1500);
-check('intro: Pause motion stops the ambient animation', true);
+check('intro: Pause motion stops the ambient animation',
+  (await sceneEval('intro', 's.ambient()')) === false &&
+  (await sceneEval('intro', 's.clock()')) === pausedClock &&
+  /Resume motion/.test(await text('[data-testid=intro-motion]')),
+  `ambient clock held at ${pausedClock.toFixed(2)}s`);
 await click('[data-testid=intro-motion]');
-await sleep(800);
-check('intro: Resume motion starts it again', true);
+// Polled rather than slept: the clock only advances on a painted frame, and
+// under load the browser can paint nothing for most of a second. Waiting for
+// the clock to move is the same assertion without the race - if it never moves,
+// this still fails.
+let resumedClock = pausedClock;
+for (let i = 0; i < 25 && resumedClock <= pausedClock; i++) {
+  await sleep(200);
+  resumedClock = await sceneEval('intro', 's.clock()');
+}
+check('intro: Resume motion starts it again',
+  (await sceneEval('intro', 's.ambient()')) === true && resumedClock > pausedClock,
+  `ambient clock ${pausedClock.toFixed(2)}s -> ${resumedClock.toFixed(2)}s`);
 await click('[data-testid=skip-intro]');
 await sleep(900);
 check('intro: Skip introduction opens the workspace', !(await isVisible('[data-testid=intro]')) && (await isVisible('[data-testid=ws-map]')));
 await send('Page.navigate', { url: BASE_URL });
 await waitFor(`${q('[data-testid=ws-map]')}`, 'workspace on return');
+await sleep(600);
 check('intro: once skipped it does not play again on the next visit', !(await isVisible('[data-testid=intro]')));
-// Reduced motion: a static, readable sequence with ambient motion off.
+// Reduced motion: a static, readable hero with ambient motion off.
 await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-const execsBeforeIntro = countCalls('/plan/execute', 'POST');
 await send('Page.navigate', { url: `${BASE_URL}${BASE_URL.includes('?') ? '&' : '?'}intro=1` });
-await sleep(2000);
-check('intro: prefers-reduced-motion turns ambient motion off and stops animating', true);
+await waitFor(`${q('[data-testid=intro]')}`, 'introduction with reduced motion');
+await waitFor(`typeof window.__floatchatScene?.intro?.clock === 'function'`, 'introduction scene probe with reduced motion');
+await sleep(1200);
+const reducedClock = await sceneEval('intro', 's.clock()');
+await sleep(1500);
+// Continuous ambient motion would advance this clock by about 1.5s.
+check('intro: prefers-reduced-motion turns ambient motion off and stops animating',
+  (await sceneEval('intro', 's.ambient()')) === false &&
+  (await sceneEval('intro', 's.clock()')) === reducedClock &&
+  // The whole hero is readable at once instead of unfolding on scroll.
+  (await depthFill()) === 100,
+  `ambient clock held at ${reducedClock.toFixed(2)}s`);
 await shot('18-intro-reduced-motion');
 await send('Emulation.setEmulatedMedia', { features: [] });
 
 console.log(`\n${checks.filter((c) => c.ok).length}/${checks.length} checks passed`);
 console.log(problems.length ? `page errors:\n  ${problems.join('\n  ')}` : 'page errors: none');
-ws.close();
+// The socket is closed *after* the browser is told to close, not before: a
+// send on a closing socket is discarded silently rather than rejecting, so its
+// reply never arrives and the await below never settles. That left the process
+// hanging on an unfinished top-level await and exiting 13, which skipped the
+// exit code entirely - a fully passing run still did not report success.
 try {
   const exited = new Promise((resolve) => chrome.on('exit', resolve));
   await send('Browser.close').catch(() => chrome.kill());
   await Promise.race([exited, sleep(3000).then(() => chrome.kill())]);
+  ws.close();
   await sleep(500); // OS file lock release time
   rmSync(tmpBase, { recursive: true, force: true });
 } catch (e) {
   console.error('cleanup error', e);
+  try { ws.close(); } catch { /* already closed */ }
 }
-process.exit(0);
+process.exit(checks.every((c) => c.ok) && problems.length === 0 ? 0 : 1);

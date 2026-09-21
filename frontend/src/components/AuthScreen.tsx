@@ -13,7 +13,7 @@ import {
 } from '@/lib/auth.ts';
 import dynamic from 'next/dynamic';
 
-const OceanScenery = dynamic(() => import('./IntroScene').then(m => m.OceanScene as any), { ssr: false });
+const OceanScenery = dynamic(() => import('./IntroScene').then(m => m.OceanScene), { ssr: false });
 
 type Mode = 'register' | 'signin';
 
@@ -39,6 +39,30 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
   const emailRef = useRef<HTMLInputElement>(null);
   const pointerRef = useRef({ x: 0, y: 0, vx: 0, vy: 0, speed: 0, active: false });
   const signup = mode === 'register';
+
+  // Two media queries drive the decorative scenery. Reduced motion suspends the
+  // animation; the 900px query mirrors the `.auth-scenery` breakpoint in
+  // globals.css, because `display: none` does not stop a requestAnimationFrame
+  // loop - the
+  // panel is hidden on mobile but its canvas would otherwise keep animating
+  // off-screen.
+  const [reduced, setReduced] = useState(false);
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const wideQuery = window.matchMedia('(min-width: 900px)');
+    const update = () => {
+      setReduced(motionQuery.matches);
+      setWide(wideQuery.matches);
+    };
+    update();
+    motionQuery.addEventListener('change', update);
+    wideQuery.addEventListener('change', update);
+    return () => {
+      motionQuery.removeEventListener('change', update);
+      wideQuery.removeEventListener('change', update);
+    };
+  }, []);
 
   useEffect(() => {
     emailRef.current?.focus();
@@ -75,7 +99,7 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
   return (
     <div className="auth-stage" data-testid="auth-screen">
       <div className="auth-scenery" aria-hidden="true">
-        <OceanScenery depth={0.1} motion={true} pointerRef={pointerRef} />
+        {wide && <OceanScenery depth={0.1} motion={!reduced} pointerRef={pointerRef} />}
       </div>
       <div className="auth-centre">
         <div className="auth-card">

@@ -1456,6 +1456,7 @@ select.fc-input{appearance:none;background-image:linear-gradient(45deg,transpare
 
 /* map + globe */
 .fc-map-wrap{position:relative;border:1px solid var(--fc-line);border-radius:12px;overflow:hidden;background:#081b23}
+.fc-map-dark-tiles{filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);}
 .fc-map{display:block;width:100%;cursor:grab}
 .fc-map-overlay{position:absolute;inset:0;display:grid;place-items:center;background:rgba(7,24,32,.78);padding:20px;z-index:5}
 .fc-map-overlay>*{max-width:420px}

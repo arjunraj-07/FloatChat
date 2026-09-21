@@ -75,10 +75,25 @@ export function OceanScene({ depth, motion, pointerRef }: { depth: number; motio
 
     const FOCAL = 1.55;
     let t = 0, last = performance.now();
+    let painted = 0;
+
+    // Read-only probe for the browser checks, mirroring SceneProbe's shape for
+    // the R3F views. This canvas is 2D, so there is no WebGL renderer to report.
+    // `clock` is the ambient time the animation advances; pausing freezes it
+    // while the canvas still repaints, so a check must assert on the clock, not
+    // on a frame count. Registered here because the introduction lost its probe
+    // when it moved from the R3F scene to this canvas.
+    const registry = (window.__floatchatScene ??= {});
+    registry.intro = {
+      frames: () => painted,
+      clock: () => t,
+      ambient: () => motionRef.current,
+    };
 
     const draw = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.05); last = now;
       if (motionRef.current) t += dt;
+      painted += 1;
       const d = depthRef.current;
       const cx = W / 2, cy = H * (0.52 - d * 0.04);
       const unit = Math.min(W, H) * 0.62;
@@ -150,7 +165,11 @@ export function OceanScene({ depth, motion, pointerRef }: { depth: number; motio
       raf.current = requestAnimationFrame(draw);
     };
     raf.current = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(raf.current); window.removeEventListener('resize', resize); };
+    return () => {
+      cancelAnimationFrame(raf.current);
+      window.removeEventListener('resize', resize);
+      if (window.__floatchatScene) delete window.__floatchatScene.intro;
+    };
   }, [pointerRef]);
 
   return <canvas ref={cv} className="fc-hero-canvas" aria-hidden="true" />;
@@ -279,7 +298,13 @@ export default function IntroScene({ markers, coverage, onSkip, onOpenAssistant 
   }, []);
 
   const [paused, setPaused] = useState(false);
-  const [depth, setDepth] = useState(reduced ? 1 : 0);
+  // `useState(reduced ? 1 : 0)` could only ever read false, because `reduced` is
+  // resolved in an effect that runs after the first render. Under reduced motion
+  // the depth then stayed at 0 while the scroll handler below was disabled, so
+  // the hero was stuck at the surface with no way to descend. Derive it instead:
+  // reduced motion shows the hero fully descended, its static readable state.
+  const [scrollDepth, setDepth] = useState(0);
+  const depth = reduced ? 1 : scrollDepth;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -329,7 +354,9 @@ export default function IntroScene({ markers, coverage, onSkip, onOpenAssistant 
     >
       <div className="fc-hero-wrap" ref={wrap} style={{ height: reduced ? 'auto' : '280vh' }}>
         <div className="fc-hero-stage" ref={stageRef} style={{ position: reduced ? 'relative' : 'sticky', top: 0, height: '100vh' }}>
-          <OceanScene depth={depth} motion={!paused} pointerRef={pointerRef} />
+          {/* Reduced motion switches off the ambient animation too, not only
+              the scroll-driven descent. */}
+          <OceanScene depth={depth} motion={!paused && !reduced} pointerRef={pointerRef} />
           <div className="fc-hero-globe-slot">{depth < 0.42 && <HeroGlobe depth={depth} markers={markers} />}</div>
 
           <div className="fc-hero-copy" style={{ transform: `translateY(${-depth * 26}px)` }}>
