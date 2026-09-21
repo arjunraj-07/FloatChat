@@ -13,7 +13,7 @@ import {
 } from '@/lib/auth.ts';
 import dynamic from 'next/dynamic';
 
-const IntroScene = dynamic(() => import('./IntroScene'), { ssr: false });
+const OceanScenery = dynamic(() => import('./IntroScene').then(m => m.OceanScene as any), { ssr: false });
 
 type Mode = 'register' | 'signin';
 
@@ -37,6 +37,7 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
   const [error, setError] = useState<string | null>(null);
   const [terms, setTerms] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
+  const pointerRef = useRef({ x: 0, y: 0, vx: 0, vy: 0, speed: 0, active: false });
   const signup = mode === 'register';
 
   useEffect(() => {
@@ -73,24 +74,22 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
 
   return (
     <div className="auth-stage" data-testid="auth-screen">
-      <div className="absolute inset-0 pointer-events-none opacity-40">
-        <IntroScene
-          markers={[]}
-          searchRegion={null}
-          coverage={null}
-          onSkip={() => {}}
-          onOpenAssistant={() => {}}
-        />
+      <div className="auth-scenery" aria-hidden="true">
+        <OceanScenery depth={0.1} motion={true} pointerRef={pointerRef} />
       </div>
       <div className="auth-centre">
         <div className="auth-card">
           <header className="auth-head">
-            <span className="auth-brand">
-              <span className="auth-mark" aria-hidden="true"><span></span><span></span><span></span></span>
-              FloatChat
-            </span>
+            <button
+              type="button"
+              className="auth-back"
+              onClick={onContinuePublic}
+              data-testid="auth-public"
+            >
+              ← Back to home
+            </button>
             <h1 className="auth-title">{signup ? 'Create your account' : 'Sign in to FloatChat'}</h1>
-            <p className="auth-lede">{signup ? 'Ask questions of the Argo array and keep your query history across sessions.' : 'Explore the Argo observations that are loaded, and ask the assistant about them.'}</p>
+            <p className="auth-lede">{signup ? 'Ask questions of the Argo array and explore the ocean.' : 'Explore the Argo observations that are loaded, and ask the assistant about them.'}</p>
           </header>
 
           <div className="auth-modes" role="tablist" aria-label="Authentication mode">
@@ -218,9 +217,6 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
           </form>
 
           <div className="auth-foot">
-            <button type="button" data-testid="auth-public" onClick={onContinuePublic} className="fc-btn fc-btn-ghost w-full">
-              Continue as guest
-            </button>
             <p className="auth-note">
               Maps, profiles, charts and comparisons all work without an account.
             </p>

@@ -126,7 +126,7 @@ export default function Explorer() {
   const [sessionChecked, setSessionChecked] = useState(false);
   // Chose to explore without an account. Public exploration is a first-class
   // path, not a degraded one: everything except the AI Assistant works.
-  const [publicMode, setPublicMode] = useState(false);
+  const [publicMode, setPublicMode] = useState(true);
 
   const [state, dispatch] = useReducer(sessionReducer, createDefaultForm(), createSession);
 
@@ -190,8 +190,6 @@ export default function Explorer() {
     setSession(next);
     setPublicMode(false);
     if (next.user) setMode(defaultViewForRole(next.user.role));
-    // Both roles land in Map Explorer; the role decides the presentation.
-    setSection('map');
     focusHeading.current = true;
   };
 
@@ -199,7 +197,7 @@ export default function Explorer() {
     signOut().then((result) => {
       if (result.ok) setSession(result.session);
       else setSession(null);
-      setPublicMode(false);
+      setPublicMode(true);
     });
   };
 

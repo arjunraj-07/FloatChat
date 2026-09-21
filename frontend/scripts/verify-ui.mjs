@@ -400,8 +400,18 @@ const regionText = coverage.search_region
   : null;
 
 // 0. Accounts ---------------------------------------------------------------------
+// 0. Accounts ---------------------------------------------------------------------
+// Since publicMode is true by default, we start on the homepage (ws-map).
+await waitFor(`${q('[data-testid=ws-map]')}`, 'homepage');
+await click('[data-testid=sign-in]'); // Trigger auth screen
 await waitFor(`${q('[data-testid=auth-screen]')}`, 'sign-in screen');
 await sleep(400);
+
+// We need to switch the mode to 'register' to see the role choices and notes,
+// because AuthScreen defaults to 'signin' where roles aren't rendered.
+await click('[data-testid=auth-tab-register]');
+await sleep(200);
+
 const roleNote = (await text('[data-testid=auth-role-note]')) ?? '';
 check('accounts: separate Student and Scientist entries, with a labelled public option',
   (await isVisible('[data-testid=role-student]')) && (await isVisible('[data-testid=role-scientist]')) &&
@@ -410,6 +420,7 @@ check('accounts: separate Student and Scientist entries, with a labelled public 
 await shot('19-sign-in');
 
 // Public exploration first: it must be a real path, not a dead end.
+// Clicking auth-public returns us to the homepage.
 await click('[data-testid=auth-public]');
 await waitFor(`${q('[data-testid=ws-map]')}`, 'public workspace');
 await sleep(800);
@@ -433,7 +444,9 @@ await shot('20-public-exploration');
 await click('[data-testid=sign-in]');
 await waitFor(`${q('[data-testid=auth-screen]')}`, 'sign-in screen again');
 await authSubmit('register', SCIENTIST_EMAIL, TEST_PASSWORD, 'scientist');
-await waitFor(`${q('[data-testid=ws-map]')}`, 'scientist workspace');
+if (!await waitFor(`${q('[data-testid=ws-map]')}`, 'scientist workspace')) {
+  await shot('debug-scientist-login');
+}
 await sleep(900);
 check('accounts: a Scientist account opens detailed view by default',
   (await evaluate(`${q('[data-testid=view-scientific]')}.getAttribute('aria-pressed')`)) === 'true' &&
@@ -449,9 +462,11 @@ await shot('21-scientist-signed-in');
 // Sign out, then prove the refusals are safe and the session is really gone.
 await openAccountMenu();
 await click('[data-testid=sign-out]');
-await waitFor(`${q('[data-testid=auth-screen]')}`, 'sign-in screen after sign out');
-check('accounts: signing out returns to the sign-in screen', await isVisible('[data-testid=auth-screen]'));
+await waitFor(`${q('[data-testid=sign-in]')}`, 'sign-in button after sign out');
+check('accounts: signing out returns to the homepage', await isVisible('[data-testid=ws-map]'));
 
+await click('[data-testid=sign-in]');
+await waitFor(`${q('[data-testid=auth-screen]')}`, 'sign-in screen after sign out');
 await authSubmit('signin', SCIENTIST_EMAIL, 'definitely-not-the-password');
 await waitFor(`${q('[data-testid=auth-error]')}`, 'bad-credentials error');
 let badPassword = (await text('[data-testid=auth-error]')) ?? '';
@@ -942,6 +957,7 @@ await click('[data-testid=filters-toggle]');
 await sleep(400);
 await setInput('#field-depthMax', '12');
 await sleep(300);
+
 await click('[data-testid=filters-close]');
 await sleep(1600);
 await openThermocline();
@@ -1771,12 +1787,11 @@ try {
     console.log(`  (timed out waiting for ${label})`);
     return false;
   };
-  const waitAuth = await waitIn(`document.querySelector('[data-testid=auth-public]')`, 'sign-in screen without WebGL');
-  if (!waitAuth) {
+  const waitHome = await waitIn(`document.querySelector('[data-testid=ws-map]')`, 'homepage without WebGL');
+  if (!waitHome) {
     const errShot = await second.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(`${OUT}/error-no-gl.png`, Buffer.from(errShot.data, 'base64'));
   }
-  await second.evaluate(`document.querySelector('[data-testid=auth-public]')?.click()`);
   await waitIn(`document.querySelector('[data-testid=mapview-globe]')`, 'page without WebGL');
   const hasGl = await second.evaluate(`Boolean(document.createElement('canvas').getContext('webgl2') || document.createElement('canvas').getContext('webgl'))`);
   await second.evaluate(`document.querySelector('[data-testid=mapview-globe]').click()`);

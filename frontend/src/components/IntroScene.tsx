@@ -40,7 +40,7 @@ function lerpHex(a: string, b: string, t: number) {
 
 const landGeoJSON = topojson.feature(landTopo as any, (landTopo as any).objects.land);
 
-function OceanScene({ depth, motion, pointerRef }: { depth: number; motion: boolean; pointerRef: React.MutableRefObject<any> }) {
+export function OceanScene({ depth, motion, pointerRef }: { depth: number; motion: boolean; pointerRef: React.MutableRefObject<any> }) {
   const cv = useRef<HTMLCanvasElement>(null);
   const raf = useRef<number>(0);
   const depthRef = useRef(depth);
