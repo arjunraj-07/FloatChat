@@ -4,21 +4,29 @@
    (client/src/tokens.css). Deep marine navigation, warm neutral surfaces,
    muted sea-green accents and a coral/ochre highlight for cautions. */
 :root {
-  --page: #f1f0e9;
-  --surface: #f9f8f3;
-  --surface-quiet: #f5f4ee;
-  --ink: #172e37;
-  --muted: #53666b;
-  --marine: #16323c;
-  --on-marine: #f9f8f3;
-  --teal: #0b6864;
-  --teal-deep: #07534f;
-  --mineral: #dde9e4;
-  --divider: #cbd3cc;
-  --outline: #6f817b;
-  --ochre: #8a512b;
-  --seablue: #236486;
-  --coral: #b06628;
+  /* These are the original light-theme names, still referenced by roughly 150
+     component styles. The app itself is the dark ocean theme: the --color-*
+     surfaces below are remapped to the --fc-* palette, so a light --ink on a
+     dark card rendered as invisible text (the assistant sign-in panel was
+     unreadable). They are remapped here, at the definition, rather than by
+     editing every call site. --on-accent is the one foreground that must stay
+     dark, because it sits on a bright teal fill. */
+  --page: #071820;
+  --surface: #0d2530;
+  --surface-quiet: #102f3a;
+  --ink: #e4eeec;
+  --muted: rgba(228, 238, 236, 0.62);
+  --marine: #0b1e26;
+  --on-marine: #e4eeec;
+  --on-accent: #06171e;
+  --teal: #2fa79f;
+  --teal-deep: #59c8be;
+  --mineral: rgba(139, 203, 196, 0.16);
+  --divider: rgba(139, 203, 196, 0.22);
+  --outline: rgba(139, 203, 196, 0.34);
+  --ochre: #e6a877;
+  --seablue: #7ec2e6;
+  --coral: #d56d50;
   --map-water: #d9e7e2;
   --radius-sm: 6px;
   --radius-md: 9px;
@@ -158,9 +166,11 @@ summary:focus-visible,
   padding: 5px 10px;
   font-size: 12px;
 }
+/* Was a cream pill with dark text. With the surfaces remapped to the ocean
+   palette both sides went dark and the selected label vanished. */
 .view-switch button.is-selected {
-  background: var(--surface);
-  color: var(--marine);
+  background: var(--teal-deep);
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -217,18 +227,18 @@ summary:focus-visible,
   cursor: not-allowed;
 }
 .button-primary {
-  background: var(--teal);
-  color: var(--surface);
+  background: var(--teal-deep);
+  color: var(--on-accent);
 }
 .button-primary:hover:not(:disabled) {
-  background: var(--teal-deep);
+  background: var(--fc-aqua);
 }
 .button-quiet {
   background: var(--mineral);
   color: var(--ink);
 }
 .button-quiet:hover:not(:disabled) {
-  background: #cfe1db;
+  background: rgba(139, 203, 196, 0.24);
 }
 .button-outline {
   background: transparent;
@@ -236,7 +246,7 @@ summary:focus-visible,
   color: var(--ink);
 }
 .button-outline:hover:not(:disabled) {
-  background: rgb(221 233 228 / 0.55);
+  background: rgba(139, 203, 196, 0.14);
 }
 .button-text {
   border: 0;
@@ -262,10 +272,10 @@ summary:focus-visible,
   font-size: 12px;
   font-weight: 600;
 }
-.chip-default { background: var(--surface-quiet); color: var(--muted); }
+.chip-default { background: var(--surface-quiet); color: var(--ink); }
 .chip-teal { background: var(--mineral); color: var(--teal-deep); }
-.chip-ochre { background: #f0e3d9; color: var(--ochre); }
-.chip-blue { background: #dde8ee; color: var(--seablue); }
+.chip-ochre { background: rgba(230, 168, 119, 0.16); color: var(--ochre); }
+.chip-blue { background: rgba(126, 194, 230, 0.16); color: var(--seablue); }
 
 .field-input {
   width: 100%;
@@ -324,8 +334,8 @@ summary:focus-visible,
   cursor: pointer;
 }
 .segmented button.is-selected {
-  background: var(--marine);
-  color: var(--surface);
+  background: var(--teal-deep);
+  color: var(--on-accent);
   font-weight: 600;
 }
 .segmented button:hover:not(.is-selected):not(:disabled) {
@@ -1258,6 +1268,8 @@ select.fc-input{appearance:none;background-image:linear-gradient(45deg,transpare
 .fc-depthmeter-fill{width:100%;background:var(--fc-teal-bright)}
 .fc-hero-scrollhint{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);font-family:var(--fc-mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fc-muted)}
 .fc-hero-sr{position:absolute;left:-999px}
+.fc-hero-nav{z-index:3}
+.fc-hero-nav-actions{display:flex;align-items:center;gap:8px}
 
 /* map + globe */
 .fc-map-wrap{position:relative;border:1px solid var(--fc-line);border-radius:12px;overflow:hidden;background:#081b23}
@@ -1583,11 +1595,20 @@ select.fc-input{appearance:none;background-image:linear-gradient(45deg,transpare
 @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
 
 /* — authentication gate — */
-.auth-stage { position: relative; display: flex; min-height: 100vh; width: 100%; overflow: hidden; background: var(--fc-bg); --color-accent: var(--fc-teal-bright); --color-surface: var(--fc-panel); --color-bg: var(--fc-bg); --color-text: var(--fc-text); --color-divider: var(--fc-line-2); }
+/* 100dvh, not 100vh: on a phone the URL bar and the on-screen keyboard shrink
+   the visual viewport, and a fixed 100vh pushed the foot of the signup form
+   under the keyboard where it could not be reached. */
+.auth-stage { position: relative; display: flex; min-height: 100dvh; width: 100%; overflow: hidden; background: var(--fc-bg); --color-accent: var(--fc-teal-bright); --color-surface: var(--fc-panel); --color-bg: var(--fc-bg); --color-text: var(--fc-text); --color-divider: var(--fc-line-2); }
 .fc-hero-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .auth-scenery { display: none; }
 @media (min-width: 900px) { .auth-scenery { display: block; flex: 1; position: relative; overflow: hidden; } }
-.auth-centre { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-4); overflow-y: auto; z-index: 10; max-width: 100%; }
+/* justify-content: center on a scroll container puts the overflow beyond both
+   ends, out of reach: at 1366x600 the Create account button could not be
+   scrolled to. Collapsing spacers centre the card when there is room and give
+   way to normal scrolling when there is not. */
+.auth-centre { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: var(--space-3); padding: var(--space-4); overflow-y: auto; z-index: 10; max-width: 100%; }
+.auth-centre::before, .auth-centre::after { content: ''; flex: 1 1 0; min-height: 0; }
+.auth-centre > * { flex-shrink: 0; }
 .auth-card { width: min(420px, 100%); padding: var(--space-4); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--fc-panel) 92%, transparent); border: 1px solid var(--fc-line-2); }
 .auth-back { background: none; border: none; color: var(--fc-teal-bright); font: inherit; font-size: 13px; cursor: pointer; padding: 0; margin-bottom: 12px; }
 .auth-back:hover { text-decoration: underline; }
@@ -1642,3 +1663,47 @@ select.fc-input{appearance:none;background-image:linear-gradient(45deg,transpare
 .fc-dive-close:hover { background: rgba(139,203,196,0.18); border-color: var(--fc-teal-bright); }
 .fc-dive-close:focus-visible { outline: 2px solid var(--fc-teal-bright); outline-offset: 2px; }
 .fc-dive-note { display: block; margin-top: 10px; }
+
+/* ── responsive + charting overrides ──────────────────────────────────────
+   The hero and map blocks above appear twice in this file and the later copy
+   wins, so these rules live at the end where they are not overridden. */
+
+/* The hero had no rules below 900px: the globe was pinned to the right at a
+   fixed size while the copy was centred at 60vw, so on a phone the globe sat on
+   top of the kicker and headline and the coverage facts fell off the bottom.
+   Here the globe moves above the text and both get the full column width. The
+   stage keeps its 100vh sticky height, so the scroll-driven descent still
+   works. */
+@media (max-width: 900px){
+  .fc-hero-globe-slot{right:auto;left:50%;top:21%;transform:translate(-50%,-50%);width:min(52vw,190px);opacity:.75}
+  .fc-hero-copy{left:0;right:0;top:auto;bottom:clamp(74px,12vh,104px);transform:none;max-width:none;padding:0 20px}
+  .fc-hero-h1{font-size:clamp(28px,7.6vw,40px)}
+  .fc-hero-lede{font-size:14.5px;max-width:none}
+  .fc-hero-facts{gap:14px 22px;margin-top:20px;padding-top:12px}
+  .fc-hero-facts dd{font-size:14px}
+  /* Collided with the primary button; the controls below already say the same. */
+  .fc-hero-scrollhint{display:none}
+  .fc-hero-controls{left:20px;right:20px;bottom:18px;justify-content:flex-end}
+}
+/* Short windows clipped the facts off the bottom edge at 1366x768. */
+@media (min-width:901px) and (max-height:820px){
+  .fc-hero-copy{top:auto;bottom:86px;transform:none}
+  .fc-hero-facts{margin-top:20px;padding-top:12px}
+  .fc-hero-h1{font-size:clamp(32px,4vw,46px)}
+}
+
+/* Plotly toolbar: its icons are dark by default, which disappeared once the
+   chart surface became transparent over the navy panel. */
+.js-plotly-plot .modebar{background:transparent}
+.js-plotly-plot .modebar-btn .icon path{fill:rgba(228,238,236,.62)}
+.js-plotly-plot .modebar-btn:hover .icon path,
+.js-plotly-plot .modebar-btn.active .icon path{fill:var(--fc-teal-bright)}
+
+/* Leaflet puts its map panes at z-index 400+ and its container does not open a
+   stacking context, so those panes compete in the root one. The filter drawer's
+   scrim sat at 60 and was painted over by the map: the drawer looked
+   transparent, with the tiles showing through its fields. The map legend above
+   already had to use 1000 for the same reason. */
+.fc-drawer-scrim{z-index:1200}
+/* Same hazard for the assistant widget, which floats over the map. */
+.fc-widget{z-index:1100}

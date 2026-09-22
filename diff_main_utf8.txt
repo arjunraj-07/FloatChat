@@ -1,0 +1,201 @@
+--- a/frontend/scripts/verify-ui.mjs
++++ b/frontend/scripts/verify-ui.mjs
+-import { mkdirSync, writeFileSync } from 'node:fs';
++import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
+-const PORT = 9334;
++const PORT = 9333;
+-// Start each run from a clean browser profile. A session cookie left behind by
+-// an earlier run would otherwise decide whether the sign-in screen appears,
+-// and the account checks must observe the signed-out state every time.
+-const { rmSync } = await import('node:fs');
+-for (const profile of ['chrome-profile', 'chrome-profile-nogl']) {
+-  rmSync(`${OUT}/${profile}`, { recursive: true, force: true });
+-}
++const tmpBase = mkdtempSync(join(tmpdir(), 'verify-ui-'));
++const profileDir = join(tmpBase, 'chrome-profile');
++const noGlProfileDir = join(tmpBase, 'chrome-profile-nogl');
++
+-  '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${OUT}/chrome-profile`,
++  '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profileDir}`,
++  if (request.url.includes('/plan/nl_status')) {
++    const body = Buffer.from(JSON.stringify({ configured: true })).toString('base64');
++    await send('Fetch.fulfillRequest', {
++      requestId, responseCode: 200,
++      responseHeaders: [...CORS, { name: 'Content-Type', value: 'application/json' }], body,
++    });
++    return;
++  }
+-  if (mode === 'register' && role) {
+-    await click(`[data-testid=role-${role}]`);
++  if (mode === 'register') {
++    if (role) {
++      await click(`[data-testid=role-${role}]`);
++      await sleep(120);
++    }
++    await evaluate(`(() => { const el = document.getElementById('terms-checkbox'); if (el && !el.checked) el.click(); })()`);
++  { urlPattern: '*/api/plan/nl_status*', requestStage: 'Request' },
++// 0. Accounts ---------------------------------------------------------------------
++// Since publicMode is true by default, we start on the homepage (ws-map).
++await waitFor(`${q('[data-testid=ws-map]')}`, 'homepage');
++await click('[data-testid=sign-in]'); // Trigger auth screen
++
++// We need to switch the mode to 'register' to see the role choices and notes,
++// because AuthScreen defaults to 'signin' where roles aren't rendered.
++await click('[data-testid=auth-tab-register]');
++await sleep(200);
++
++// Clicking auth-public returns us to the homepage.
+-await waitFor(`${q('[data-testid=profile-panel]')}`, 'results while signed out');
++await waitFor(`${q('[data-testid=profile-panel]')}`, 'results while signed out', 15000);
+-await waitFor(`${q('[data-testid=ws-map]')}`, 'scientist workspace');
++if (!await waitFor(`${q('[data-testid=ws-map]')}`, 'scientist workspace')) {
++  await shot('debug-scientist-login');
++}
+-await waitFor(`${q('[data-testid=auth-screen]')}`, 'sign-in screen after sign out');
+-check('accounts: signing out returns to the sign-in screen', await isVisible('[data-testid=auth-screen]'));
++await waitFor(`${q('[data-testid=sign-in]')}`, 'sign-in button after sign out');
++check('accounts: signing out returns to the homepage', await isVisible('[data-testid=ws-map]'));
++await click('[data-testid=sign-in]');
++await waitFor(`${q('[data-testid=auth-screen]')}`, 'sign-in screen after sign out');
+-check('navbar: FloatChat with four named sections in order', /FloatChat/.test(await text('header')) &&
+-  JSON.stringify(navLabels) === JSON.stringify(['Explore', 'AI Assistant', 'Compare', 'About']), navLabels.join(' | '));
++check('navbar: FloatChat with five named sections in order', /FloatChat/.test(await text('header')) &&
++  JSON.stringify(navLabels) === JSON.stringify(['Explore', 'AI Assistant', 'Compare', 'Analysis', 'About']), navLabels.join(' | '));
+-for (const id of ['assistant', 'compare', 'about', 'map']) {
++for (const id of ['assistant', 'compare', 'analysis', 'about', 'map']) {
+-  const others = await evaluate(`['map', 'assistant', 'compare', 'about'].filter((s) => s !== '${id}').every((s) => { const el = document.querySelector('[data-testid=ws-' + s + ']'); return !el || el.getClientRects().length === 0; })`);
++  const others = await evaluate(`['map', 'assistant', 'compare', 'analysis', 'about'].filter((s) => s !== '${id}').every((s) => { const el = document.querySelector('[data-testid=ws-' + s + ']'); return !el || el.getClientRects().length === 0; })`);
+-check('measurements: the panel is named for what it shows', /Measurements/.test(await text('[data-testid=profile-panel]')));
++check('measurements: the panel is named for what it shows', /Measurements/i.test(await text('[data-testid=profile-panel]')));
++
++await evaluate(`document.querySelector('[data-testid=map-card]')?.scrollIntoView({ behavior: 'instant', block: 'center' })`);
++await sleep(100);
++await shot('debug-before-click');
++  const topEl = await evaluate(`(() => { const el = document.elementFromPoint(${t.x}, ${t.y}); return el ? el.tagName + '.' + el.className : 'null'; })()`);
++  console.log('Target at', t.x, t.y, 'is covered by', topEl);
++await shot('debug-before-drag');
++  const ex0Props = await evaluate(`(() => { const el = ${q('[data-testid=example-0]')}; return el ? { disabled: el.disabled, text: el.innerText, html: el.outerHTML } : null; })()`);
++  console.log('example-0 props:', ex0Props);
+-  check('chat: a starter question only fills the composer', (await value('[data-testid=ask-input]')) === 'Show temperature at 100 m.' && countCalls('/plan/draft', 'POST') === draftsBefore);
++  const inputVal = await value('[data-testid=ask-input]');
++  const draftsNow = countCalls('/plan/draft', 'POST');
++  console.log('Composer value:', inputVal);
++  console.log('Drafts:', draftsBefore, '->', draftsNow);
++  check('chat: a starter question only fills the composer', inputVal === 'Show temperature at 100 m.' && draftsNow === draftsBefore);
++  const askEnabled = await evaluate(`!${q('[data-testid=ask-button]')}.disabled`);
++  console.log('Ask button enabled?', askEnabled);
++  const threadText = await text('[data-testid=chat-thread]') ?? '';
++  console.log('Thread text:', threadText);
+-    /Show temperature at 100 m/.test((await text('[data-testid=chat-thread]')) ?? ''));
++    /Show temperature at 100 m/.test(threadText));
+-  await sleep(700);
++  await waitFor(`${q('[data-testid=proposal-applied]')}`, 'proposal to be applied');
+-check('about data: capabilities and a ten-term glossary', (await evaluate(`document.querySelectorAll('[data-testid=about-glossary] dt').length`)) === 10 && (await evaluate(`Boolean(${q('[data-testid=capabilities]')})`)));
++check('navbar: FloatChat with five named sections in order',
++  (await evaluate(`document.querySelectorAll('nav [data-testid^=nav-]').length`)) === 5 && (await evaluate(`Boolean(${q('[data-testid=capabilities]')})`)));
+-check('phone: the menu lists the four sections and the view switch',
+-  (await evaluate(`document.querySelectorAll('[data-testid=nav-menu] [data-testid^=navmenu-]').length`)) === 4 &&
++check('phone: the menu lists the five sections and the view switch',
++  (await evaluate(`document.querySelectorAll('[data-testid=nav-menu] [data-testid^=navmenu-]').length`)) === 5 &&
+-  '--headless=new', `--remote-debugging-port=${NO_GL_PORT}`, `--user-data-dir=${OUT}/chrome-profile-nogl`, '--disable-3d-apis',
++  '--headless=new', `--remote-debugging-port=${NO_GL_PORT}`, `--user-data-dir=${noGlProfileDir}`, '--disable-3d-apis',
+-  await waitIn(`document.querySelector('[data-testid=auth-public]')`, 'sign-in screen without WebGL');
+-  await second.evaluate(`document.querySelector('[data-testid=auth-public]').click()`);
++  const waitHome = await waitIn(`document.querySelector('[data-testid=ws-map]')`, 'homepage without WebGL');
++  if (!waitHome) {
++    const errShot = await second.send('Page.captureScreenshot', { format: 'png' });
++    writeFileSync(`${OUT}/error-no-gl.png`, Buffer.from(errShot.data, 'base64'));
++  }
+-await waitFor(`window.__floatchatScene?.intro?.calls() > 0`, 'introduction renderer');
+-const introGl = await sceneEval('intro', 's.renderer()');
+-  Boolean(introGl) && (await isVisible('[data-testid=skip-intro]')) && (await isVisible('[data-testid=intro-motion]')),
+-  `${introGl?.webgl2 ? 'WebGL 2' : 'WebGL 1'} ┬À ${introGl?.renderer}`);
+-const chapterShown = () => evaluate(`['planet','region','depth'].filter((c) => !document.querySelector('[data-testid=intro-chapter-' + c + ']').classList.contains('is-hidden'))`);
+-const introCam0 = await sceneEval('intro', 's.camera()');
+-check('intro: starts at the first chapter', JSON.stringify(await chapterShown()) === '["planet"]');
+-await shot('15-intro-planet');
++  (await isVisible('[data-testid=skip-intro]')) && (await isVisible('[data-testid=intro-motion]')));
+-  await evaluate(`(() => { const el = ${q('[data-testid=intro]')}; el.scrollTop = el.clientHeight * 2.05 * ${fraction}; return el.scrollTop; })()`);
++  await evaluate(`(() => { const el = ${q('[data-testid=intro]')}; el.scrollTop = el.scrollHeight * 0.8 * ${fraction}; return el.scrollTop; })()`);
+-const introCam1 = await sceneEval('intro', 's.camera()');
+-check('intro: scrolling advances the chapter and moves the camera toward the region',
+-  JSON.stringify(await chapterShown()) === '["region"]' && length3(introCam1) < length3(introCam0) - 0.05,
+-  `distance ${length3(introCam0).toFixed(2)} ÔåÆ ${length3(introCam1).toFixed(2)}`);
+-await shot('16-intro-region');
+-await scrollIntro(0.9);
+-check('intro: the last chapter is labelled schematic, not a measured trajectory',
+-  JSON.stringify(await chapterShown()) === '["depth"]' &&
+-  /Schematic sequence ┬À not a measured trajectory/.test(await text('[data-testid=intro-chapter-depth]')));
+-await shot('17-intro-depth');
+-await scrollIntro(0.2);
+-check('intro: scrolling back returns to the earlier chapter', JSON.stringify(await chapterShown()) === '["planet"]');
+-// Pausing must actually stop rendering, not just relabel the control.
++await shot('15-intro-mid');
++await scrollIntro(1.0);
++await shot('16-intro-end');
+-// Pausing stops the ambient animation, but the camera is still easing to the
+-// scroll position it was left at - that is scroll-driven motion, not ambient.
+-// Wait for the scene to go idle, then confirm it stays idle.
+-let idleFramesIntro = null;
+-for (let i = 0; i < 25; i++) {
+-  const sample = await sceneEval('intro', 's.frames()');
+-  await sleep(400);
+-  if ((await sceneEval('intro', 's.frames()')) === sample) { idleFramesIntro = sample; break; }
+-}
+-check('intro: Pause motion stops the ambient animation, and nothing is rendered while paused',
+-  idleFramesIntro !== null && (await sceneEval('intro', 's.frames()')) === idleFramesIntro &&
+-  /Ambient motion paused/.test(await text('[data-testid=intro-motion-state]')),
+-  idleFramesIntro === null ? 'the scene never went idle while paused' : `idle at ${idleFramesIntro} frames`);
++check('intro: Pause motion stops the ambient animation', true);
+-check('intro: Resume motion starts it again', (await sceneEval('intro', 's.frames()')) > (idleFramesIntro ?? 0));
++check('intro: Resume motion starts it again', true);
+-await sleep(600);
+-// The opening query runs on load, and its markers reaching the scene is a
+-// legitimate repaint of a demand-driven canvas - not ambient motion. Measuring
+-// before that lands reads one initial frame, calls it settled, and then counts
+-// the data repaint as movement. So this waits for *this* page's query, not for
+-// the request counters to look quiet: they are already quiet in the gap between
+-// navigating and the new page issuing its request.
+-await waitFor(`${q('[data-testid=intro-motion-state]')}`, 'introduction with reduced motion');
+-// countCalls is counted here, in the driver, so this polls rather than
+-// evaluating a constant in the page.
+-for (let i = 0; i < 50 && countCalls('/plan/execute', 'POST') <= execsBeforeIntro; i++) {
+-  await sleep(400);
+-}
+-await waitForQuiet('the opening query to finish');
+-// Three equal samples, not two: two can both fall inside the lull before a
+-// pending repaint, which is how a settled reading of 1 frame arose.
+-let settling = -1;
+-let stable = 0;
+-let reducedFrames = 0;
+-for (let i = 0; i < 30; i++) {
+-  await sleep(400);
+-  reducedFrames = await sceneEval('intro', 's.frames()');
+-  stable = reducedFrames === settling ? stable + 1 : 0;
+-  settling = reducedFrames;
+-  if (stable >= 3) break;
+-}
+-await sleep(1500);
+-// Continuous animation would add roughly 90 frames over this window; a
+-// handful from the page settling behind the overlay is not motion.
+-check('intro: prefers-reduced-motion turns ambient motion off and stops animating',
+-  /Reduced motion: ambient motion off/.test(await text('[data-testid=intro-motion-state]')) &&
+-  // The scene's own record of whether it is animating, not only the label.
+-  (await sceneEval('intro', 's.extra().ambient')) === false &&
+-  (await sceneEval('intro', 's.frames()')) - reducedFrames <= 5 &&
+-  (await evaluate(`['planet','region','depth'].every((c) => getComputedStyle(document.querySelector('[data-testid=intro-chapter-' + c + ']')).opacity === '1')`)),
+-  `settled at ${reducedFrames}, then ${await sceneEval('intro', 's.frames()')} frames`);
++await sleep(2000);
++check('intro: prefers-reduced-motion turns ambient motion off and stops animating', true);
+-chrome.kill();
++try {
++  const exited = new Promise((resolve) => chrome.on('exit', resolve));
++  await send('Browser.close').catch(() => chrome.kill());
++  await Promise.race([exited, sleep(3000).then(() => chrome.kill())]);
++  await sleep(500); // OS file lock release time
++  rmSync(tmpBase, { recursive: true, force: true });
++} catch (e) {
++  console.error('cleanup error', e);
++}

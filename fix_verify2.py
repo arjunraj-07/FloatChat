@@ -1,0 +1,1 @@
+import re; f=open('frontend/scripts/verify-ui.mjs','r',encoding='utf-8'); d=f.read(); f.close(); d = d.replace('await click(\\''[data-testid=sign-in]\\'); // Trigger auth screen', 'await shot(\\''before-sign-in-click\\'');\\nawait click(\\''[data-testid=sign-in]\\'); // Trigger auth screen'); open('frontend/scripts/verify-ui.mjs','w',encoding='utf-8').write(d)

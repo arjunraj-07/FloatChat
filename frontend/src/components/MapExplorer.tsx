@@ -264,6 +264,8 @@ export default function MapExplorer({
             <aside
               id="filter-drawer"
               data-testid="filter-drawer"
+              role="dialog"
+              aria-modal="true"
               aria-label="Filters"
               onKeyDown={(event) => {
                 if (event.key === 'Escape') closeDrawer();

@@ -16,8 +16,10 @@ import type { ProfileSeries, ViewMode } from '@/lib/explorerModel.ts';
 import { variableAxisTitle } from './ProfileChart';
 
 export const COMPARE_STYLE = {
-  a: { color: '#2a78d6', dash: 'solid', symbol: 'circle' },
-  b: { color: '#eb6834', dash: 'dash', symbol: 'square' },
+  // Lightened for the dark chart surface; the dash and symbol still carry the
+  // A/B distinction, so the pair does not rely on colour alone.
+  a: { color: '#63b3f5', dash: 'solid', symbol: 'circle' },
+  b: { color: '#f5895a', dash: 'dash', symbol: 'square' },
 } as const;
 
 export interface CompareSide {
@@ -70,14 +72,15 @@ export default function CompareChart({ a, b, variable, mode, height }: Props) {
     }
   }
 
+  // Matches ProfileChart: furniture tuned for the dark ocean surface.
   const axis = {
     showline: true,
-    linecolor: '#d6d3d1',
-    gridcolor: '#eeedeb',
+    linecolor: 'rgba(139,203,196,0.34)',
+    gridcolor: 'rgba(139,203,196,0.13)',
     zeroline: false,
     ticks: 'outside',
-    tickcolor: '#d6d3d1',
-    tickfont: { size: 11, color: '#57534e' },
+    tickcolor: 'rgba(139,203,196,0.34)',
+    tickfont: { size: 11, color: 'rgba(228,238,236,0.74)' },
   };
 
   return (
@@ -86,8 +89,8 @@ export default function CompareChart({ a, b, variable, mode, height }: Props) {
       layout={{
         height,
         margin: { l: 56, r: 12, t: 12, b: 48 },
-        paper_bgcolor: '#ffffff',
-        plot_bgcolor: '#ffffff',
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
         hovermode: 'closest',
         // No plot legend. Two profile names are long enough to collide with
         // each other and with the axis title in a horizontal Plotly legend,
@@ -98,12 +101,12 @@ export default function CompareChart({ a, b, variable, mode, height }: Props) {
         font: { family: 'var(--font-geist-sans), system-ui, sans-serif' },
         xaxis: {
           ...axis,
-          title: { text: variableAxisTitle(variable, mode), font: { size: 12, color: '#44403c' } },
+          title: { text: variableAxisTitle(variable, mode), font: { size: 12, color: '#e4eeec' } },
         },
         yaxis: {
           ...axis,
           autorange: 'reversed',
-          title: { text: 'Depth (m)', font: { size: 12, color: '#44403c' } },
+          title: { text: 'Depth (m)', font: { size: 12, color: '#e4eeec' } },
         },
       }}
       config={{ displaylogo: false, responsive: true, modeBarButtonsToRemove: ['lasso2d', 'select2d'] }}

@@ -19,15 +19,18 @@ export const SERIES_COLOR: Record<Variable, string> = {
   psal: '#2a78d6',
 };
 
+// Axis furniture for the dark ocean surface the charts actually sit on. The
+// chart used to be a white rectangle pasted onto a navy page, and its grey
+// ticks and titles were tuned for that white.
 const AXIS = {
   showline: true,
-  linecolor: '#d6d3d1',
-  gridcolor: '#eeedeb',
+  linecolor: 'rgba(139,203,196,0.34)',
+  gridcolor: 'rgba(139,203,196,0.13)',
   zeroline: false,
   ticks: 'outside',
-  tickcolor: '#d6d3d1',
-  tickfont: { size: 11, color: '#57534e' },
-  title: { font: { size: 12, color: '#44403c' } },
+  tickcolor: 'rgba(139,203,196,0.34)',
+  tickfont: { size: 11, color: 'rgba(228,238,236,0.74)' },
+  title: { font: { size: 12, color: '#e4eeec' } },
 };
 
 export function variableAxisTitle(variable: Variable, mode: ViewMode): string {
@@ -83,15 +86,15 @@ export default function ProfileChart({
     shapes: thermocline ? [{
       type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1,
       y0: thermocline.upperDepth, y1: thermocline.lowerDepth,
-      fillcolor: 'rgba(11,104,100,0.10)', line: { width: 0 }, layer: 'below',
+      fillcolor: 'rgba(89,200,190,0.14)', line: { width: 0 }, layer: 'below',
     }, {
       type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1,
       y0: thermocline.estimatedDepth, y1: thermocline.estimatedDepth,
-      line: { color: '#0b6864', width: 1.5, dash: 'dash' }, layer: 'below',
+      line: { color: '#59c8be', width: 1.5, dash: 'dash' }, layer: 'below',
     }] : [],
     margin: { l: 56, r: 12, t: 30, b: 48 },
-    paper_bgcolor: '#ffffff',
-    plot_bgcolor: '#ffffff',
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
     showlegend: false,
     hovermode: 'closest',
     font: { family: 'var(--font-geist-sans), system-ui, sans-serif' },
@@ -114,7 +117,7 @@ export default function ProfileChart({
       showarrow: false,
       xanchor: 'left',
       yanchor: 'bottom',
-      font: { size: 10, color: '#07534f' },
+      font: { size: 10, color: '#8bcbc4' },
     });
   }
 

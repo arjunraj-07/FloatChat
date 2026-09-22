@@ -1,0 +1,9 @@
+short: submit in view before scroll = false
+short: scrolled to submit = false
+zoom200: horizontal overflow = false
+kbd: drawer open = false
+kbd: focus on close = filters-toggle
+kbd: focus ring visible = true
+kbd: drawer closed = true
+kbd: focus returned to = filters-toggle
+hidden sections focusable count = 28

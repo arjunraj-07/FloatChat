@@ -526,6 +526,10 @@ export default function Explorer() {
             dismissIntro();
             navigate('assistant');
           }}
+          onSignIn={() => {
+            dismissIntro();
+            setPublicMode(false);
+          }}
         />
       )}
 

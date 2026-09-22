@@ -171,8 +171,13 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
               {signup && <p className="auth-hint">At least 10 characters.</p>}
             </div>
 
+            {/* The rule used to be drawn on the fieldset's own top edge, so it
+                ran straight through the word "Account type". It is a separate
+                divider now, leaving the legend legible. */}
             {signup && (
-              <fieldset className="fc-field mb-4 mt-2 border-t border-[var(--fc-line-2)] pt-4">
+              <>
+              <div className="mt-4 border-t border-[var(--fc-line-2)]" />
+              <fieldset className="fc-field mb-4 mt-4">
                 <legend className="fc-mono text-[var(--fc-text)] text-sm mb-3 font-semibold">Account type</legend>
                 <div className="flex flex-col gap-3">
                   {(['student', 'scientist'] as const).map((v) => (
@@ -220,6 +225,7 @@ export default function AuthScreen({ onAuthenticated, onContinuePublic, unavaila
                   </label>
                 </div>
               </fieldset>
+              </>
             )}
 
             {error && (

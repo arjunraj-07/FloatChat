@@ -21,6 +21,7 @@ export interface Props {
   coverage?: CoverageInfo | null;
   onSkip: () => void;
   onOpenAssistant: () => void;
+  onSignIn?: () => void;
 }
 
 function clamp(v: number, min: number, max: number) {
@@ -287,7 +288,7 @@ function HeroGlobe({ depth, markers }: { depth: number; markers: IntroMarker[] }
   );
 }
 
-export default function IntroScene({ markers, coverage, onSkip, onOpenAssistant }: Props) {
+export default function IntroScene({ markers, coverage, onSkip, onOpenAssistant, onSignIn }: Props) {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
     const query = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -357,7 +358,19 @@ export default function IntroScene({ markers, coverage, onSkip, onOpenAssistant 
           {/* Reduced motion switches off the ambient animation too, not only
               the scroll-driven descent. */}
           <OceanScene depth={depth} motion={!paused && !reduced} pointerRef={pointerRef} />
-          <div className="fc-hero-globe-slot">{depth < 0.42 && <HeroGlobe depth={depth} markers={markers} />}</div>
+          <div className="fc-hero-nav">
+            <span className="fc-brand">
+              <span className="fc-brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+              FloatChat
+            </span>
+            <span className="fc-hero-nav-actions">
+              <button type="button" className="fc-btn fc-btn-sm" data-testid="intro-explore" onClick={onSkip}>Explore</button>
+              {onSignIn && (
+                <button type="button" className="fc-btn fc-btn-sm fc-btn-outline" data-testid="intro-sign-in" onClick={onSignIn}>Sign in</button>
+              )}
+            </span>
+          </div>
+          <div className="fc-hero-globe-slot" aria-hidden="true">{depth < 0.42 && <HeroGlobe depth={depth} markers={markers} />}</div>
 
           <div className="fc-hero-copy" style={{ transform: `translateY(${-depth * 26}px)` }}>
             <div style={{ marginBottom: '1.5rem', opacity: 1 - depth * 3 }}>
@@ -377,7 +390,7 @@ export default function IntroScene({ markers, coverage, onSkip, onOpenAssistant 
               <div><dt>Floats</dt><dd><span className="fc-mono">{coverage ? coverage.distinct_floats : '...'}</span></dd></div>
               <div><dt>Profiles</dt><dd><span className="fc-mono">{coverage ? coverage.distinct_profiles : '...'}</span></dd></div>
               <div><dt>Window</dt><dd><span className="fc-mono">{coverage ? `${coverage.date_range[0].slice(0, 10)} → ${coverage.date_range[1].slice(0, 10)}` : '...'}</span></dd></div>
-              <div><dt>Depth</dt><dd><span className="fc-mono">{coverage && coverage.depth_range_m ? `${coverage.depth_range_m[0]}–${coverage.depth_range_m[1]} m` : '...'}</span></dd></div>
+              <div><dt>Depth</dt><dd><span className="fc-mono">{coverage && coverage.depth_range_m ? `${Math.round(coverage.depth_range_m[0])}–${Math.round(coverage.depth_range_m[1])} m` : '...'}</span></dd></div>
             </dl>
           </div>
 
